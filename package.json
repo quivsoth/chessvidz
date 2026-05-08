@@ -1,0 +1,24 @@
+{
+  "name": "chess-video",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\"",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:migrate": "node scripts/migrate.js",
+    "api:start": "node api/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.99",
+    "chess.js": "^1.4.0",
+    "express": "^4.21.2",
+    "fluent-ffmpeg": "^2.1.3",
+    "pg": "^8.16.3"
+  }
+}
