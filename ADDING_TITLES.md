@@ -1,6 +1,11 @@
 # Adding Chess Titles to Players
 
-Currently, player usernames from Chess.com don't include their titles (GM, IM, FM, etc.) as part of the username. To properly display titled players with colored titles, you'll need to fetch and store this data.
+This is now implemented for the Titled Tuesday ingestion path:
+- titles are stored in `players.title`
+- Titled Tuesday imports resolve titles from the local `sources/titled-tuesday-data/ranks/*.json` files
+- the renderer still falls back to parsing `GM/IM/FM/...` prefixes from `display_name` for legacy data
+
+The notes below describe the original approach and remain useful if you want to extend titles to other sources.
 
 ## Option 1: Fetch from Chess.com Player API
 

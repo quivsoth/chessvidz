@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { Chess } = require('chess.js');
 const { Pool } = require('pg');
 
@@ -8,6 +10,8 @@ const { Pool } = require('pg');
 const DEFAULT_DB_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/chess_video';
 const pool = new Pool({ connectionString: DEFAULT_DB_URL });
 const RATE_LIMIT_DELAY = 600; // ms between requests to avoid 429 errors
+const RANKS_DIR = path.join(__dirname, '..', 'sources', 'titled-tuesday-data', 'ranks');
+const KNOWN_TITLES = new Set(['GM', 'IM', 'FM', 'NM', 'WGM', 'WIM', 'WFM', 'CM', 'WCM']);
 
 // Recent Titled Tuesday tournaments from 2026
 const TOURNAMENT_IDS = [
@@ -38,6 +42,38 @@ function sleep(ms) {
 
 function normalizeName(name) {
   return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function buildTitleLookup() {
+  const titleByUsername = new Map();
+  if (!fs.existsSync(RANKS_DIR)) return titleByUsername;
+
+  for (const file of fs.readdirSync(RANKS_DIR)) {
+    if (!file.endsWith('.json')) continue;
+    const fullPath = path.join(RANKS_DIR, file);
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    } catch (err) {
+      console.warn(`Skipping ${file}: ${err.message}`);
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    for (const entry of parsed) {
+      const username = normalizeName(entry && entry.username);
+      const title = entry && entry.title;
+      if (!username || !KNOWN_TITLES.has(title) || titleByUsername.has(username)) continue;
+      titleByUsername.set(username, title);
+    }
+  }
+
+  return titleByUsername;
+}
+
+const TITLE_BY_USERNAME = buildTitleLookup();
+
+function getPlayerTitle(username) {
+  return TITLE_BY_USERNAME.get(normalizeName(username)) || null;
 }
 
 function parseDate(raw) {
@@ -169,6 +205,8 @@ function parseChesscomGame(gameData, tournamentName) {
 
   const gameUrl = gameData.url || '';
   const gameId = gameUrl.split('/').pop() || `${headers.White}-${headers.Black}-${headers.Date}`;
+  const whiteTitle = getPlayerTitle(gameData.white?.username || headers.White);
+  const blackTitle = getPlayerTitle(gameData.black?.username || headers.Black);
 
   return {
     source: {
@@ -182,6 +220,8 @@ function parseChesscomGame(gameData, tournamentName) {
     },
     whitePlayer: gameData.white?.username || headers.White || 'Unknown',
     blackPlayer: gameData.black?.username || headers.Black || 'Unknown',
+    whiteTitle,
+    blackTitle,
     game: {
       sourceGameId: gameId,
       event: headers.Event || tournamentName,
@@ -218,15 +258,16 @@ async function upsertSource(client, source) {
   return rows[0].id;
 }
 
-async function upsertPlayer(client, displayName) {
+async function upsertPlayer(client, displayName, title = null) {
   const normalizedName = normalizeName(displayName);
   const { rows } = await client.query(
-    `INSERT INTO players(normalized_name, display_name)
-     VALUES ($1, $2)
+    `INSERT INTO players(normalized_name, display_name, title)
+     VALUES ($1, $2, $3)
      ON CONFLICT (normalized_name) DO UPDATE
-       SET display_name = EXCLUDED.display_name
+       SET display_name = EXCLUDED.display_name,
+           title = COALESCE(EXCLUDED.title, players.title)
      RETURNING id`,
-    [normalizedName, displayName],
+    [normalizedName, displayName, title],
   );
   return rows[0].id;
 }
@@ -281,8 +322,8 @@ async function ingestGame(parsed) {
   try {
     await client.query('BEGIN');
     const sourceId = await upsertSource(client, parsed.source);
-    const whiteId = await upsertPlayer(client, parsed.whitePlayer);
-    const blackId = await upsertPlayer(client, parsed.blackPlayer);
+        const whiteId = await upsertPlayer(client, parsed.whitePlayer, parsed.whiteTitle || null);
+        const blackId = await upsertPlayer(client, parsed.blackPlayer, parsed.blackTitle || null);
     await upsertGameAndMoves(client, parsed, sourceId, whiteId, blackId);
     await client.query('COMMIT');
     return { success: true };

@@ -1,0 +1,11 @@
+.DS_Store
+node_modules
+frames
+output
+render-output.log
+sources/titled-tuesday-data
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm

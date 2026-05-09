@@ -31,6 +31,22 @@ services:
     volumes:
       - minio_data:/data
 
+  analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile.analyzer
+    container_name: chess_video_analyzer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/chess_video
+      STOCKFISH_PATH: ${STOCKFISH_PATH:-/usr/games/stockfish}
+      STOCKFISH_DEPTH: ${STOCKFISH_DEPTH:-14}
+      ANALYZE_GAME_LIMIT: ${ANALYZE_GAME_LIMIT:-50}
+    profiles:
+      - analysis
+
 volumes:
   postgres_data:
   minio_data:

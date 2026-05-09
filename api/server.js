@@ -474,8 +474,10 @@ function gameFromLichess(rawGame) {
     return { san, playedAtSeconds: Math.round(elapsed) };
   });
 
-  const whiteName = rawGame.players?.white?.user?.name || 'White';
-  const blackName = rawGame.players?.black?.user?.name || 'Black';
+  const whiteUser = rawGame.players?.white?.user || {};
+  const blackUser = rawGame.players?.black?.user || {};
+  const whiteName = whiteUser.name || 'White';
+  const blackName = blackUser.name || 'Black';
   const sourceGameId = rawGame.id || null;
   return {
     source: {
@@ -490,6 +492,8 @@ function gameFromLichess(rawGame) {
     },
     whitePlayer: whiteName,
     blackPlayer: blackName,
+    whiteTitle: whiteUser.title || null,
+    blackTitle: blackUser.title || null,
     game: {
       sourceGameId,
       event: rawGame.tournament || 'Lichess game',
@@ -524,15 +528,16 @@ async function upsertSource(client, source) {
   return rows[0].id;
 }
 
-async function upsertPlayer(client, displayName) {
+async function upsertPlayer(client, displayName, title = null) {
   const normalizedName = normalizeName(displayName);
   const { rows } = await client.query(
-    `INSERT INTO players(normalized_name, display_name)
-     VALUES ($1, $2)
+    `INSERT INTO players(normalized_name, display_name, title)
+     VALUES ($1, $2, $3)
      ON CONFLICT (normalized_name) DO UPDATE
-       SET display_name = EXCLUDED.display_name
+       SET display_name = EXCLUDED.display_name,
+           title = COALESCE(EXCLUDED.title, players.title)
      RETURNING id`,
-    [normalizedName, displayName],
+    [normalizedName, displayName, title],
   );
   return rows[0].id;
 }
@@ -606,8 +611,8 @@ async function ingestParsedGames(parsedGames, runSourceKey) {
       try {
         await client.query('BEGIN');
         const sourceId = await upsertSource(client, parsed.source);
-        const whiteId = await upsertPlayer(client, parsed.whitePlayer);
-        const blackId = await upsertPlayer(client, parsed.blackPlayer);
+        const whiteId = await upsertPlayer(client, parsed.whitePlayer, parsed.whiteTitle || null);
+        const blackId = await upsertPlayer(client, parsed.blackPlayer, parsed.blackTitle || null);
         await upsertGameAndMoves(client, parsed, sourceId, whiteId, blackId);
         await client.query('COMMIT');
         imported++;

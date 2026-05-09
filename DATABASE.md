@@ -42,8 +42,13 @@ Use the API endpoints documented in `API.md`:
 ## Schema overview
 
 - `sources`: source system records (Lichess, PGN, etc.)
-- `players`: normalized player dimension
+- `players`: normalized player dimension with optional title
 - `games`: per-game metadata + dedupe hash
 - `game_moves`: one row per ply
+- `game_evals`: stored Stockfish evals per ply
 - `ingest_runs`: ingestion run tracking
 - `schema_migrations`: migration tracking
+
+`game_evals.depth` is part of the analysis state:
+- same depth: resume or skip
+- different depth: recompute for that game
