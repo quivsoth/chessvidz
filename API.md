@@ -28,7 +28,7 @@ Checks API + DB connectivity.
 
 Returns DB games with player/event filters.
 
-### Ingest from Lichess directly to DB
+### Ingest from Lichess directly to local DB
 
 `POST /ingest/lichess`
 
