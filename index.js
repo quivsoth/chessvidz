@@ -281,57 +281,113 @@ function drawStaticPieces(ctx, board, skipSquares = new Set()) {
 }
 
 function drawMoveLabel(ctx, moveNumber, san, totalMoves) {
-  const yTop = PADDING * 0.28;
-  const yBottom = PADDING * 0.66;
-  ctx.font = `bold ${Math.round(PADDING * 0.27)}px monospace`;
-  ctx.textBaseline = 'middle';
-
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#f0d7ab';
-  ctx.fillText(moveNumber === 0 ? 'Start position' : `Move ${moveNumber}: ${san}`, PADDING, yTop);
-
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#bfa791';
-  ctx.fillText(`${moveNumber} / ${totalMoves}`, CANVAS_SIZE - PADDING * 0.3, yTop);
-
-  if (drawMoveLabel.meta) {
-    const { elapsedSeconds, totalTimeSeconds } = drawMoveLabel.meta;
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#bfa791';
-    const elapsed = formatClock(elapsedSeconds || 0);
-    const total = formatClock(totalTimeSeconds || 0);
-    ctx.fillText(`Elapsed ${elapsed} / ${total}`, CANVAS_SIZE - PADDING * 0.3, yBottom);
-  }
+  // No move notation display - keep it clean
 }
 
 function drawPlayerNameBars(ctx, meta) {
   if (!meta) return;
 
-  const barX = PADDING;
-  const barW = BOARD_SIZE;
-  const topBarY = PLAYER_NAME_BAR_EDGE_MARGIN;
-  const bottomBarY = CANVAS_SIZE - PLAYER_NAME_BAR_HEIGHT - PLAYER_NAME_BAR_EDGE_MARGIN;
+  const topMargin = 6;
+  const bottomMargin = 6;
+  const barX = 0; // Start at edge
+  const barW = CANVAS_SIZE; // Full width
+  const barHeight = PLAYER_NAME_BAR_HEIGHT;
+  const topBarY = topMargin;
+  const bottomBarY = CANVAS_SIZE - barHeight - bottomMargin;
 
-  function drawSingleBar(y, label, color, remainingSeconds) {
+  function drawSingleBar(y, name, rating, color, timeRemaining, isActive) {
+    // Draw full-width black bar (edge to edge)
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
-    ctx.fillRect(barX, y, barW, PLAYER_NAME_BAR_HEIGHT);
+    ctx.fillRect(barX, y, barW, barHeight);
     ctx.strokeStyle = 'rgba(255,255,255,0.22)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(barX + 0.5, y + 0.5, barW - 1, PLAYER_NAME_BAR_HEIGHT - 1);
+    ctx.strokeRect(barX + 0.5, y + 0.5, barW - 1, barHeight - 1);
 
+    // Draw player name with title color-coding
     ctx.textBaseline = 'middle';
-    ctx.font = `bold ${Math.round(PADDING * 0.29)}px sans-serif`;
+    ctx.font = `bold ${Math.round(PADDING * 0.32)}px sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillStyle = color;
-    ctx.fillText(label, barX + 10, y + PLAYER_NAME_BAR_HEIGHT / 2);
 
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#f0d7ab';
-    ctx.fillText(formatClock(Math.max(0, remainingSeconds || 0)), barX + barW - 10, y + PLAYER_NAME_BAR_HEIGHT / 2);
+    // Extract title from player name (e.g., "GM Magnus Carlsen" -> "GM", "Magnus Carlsen")
+    const titleMatch = name.match(/^(GM|IM|FM|WGM|WIM|WFM|NM|CM|WCM)\s+(.+)$/);
+    const title = titleMatch ? titleMatch[1] : null;
+    const displayName = titleMatch ? titleMatch[2] : name;
+
+    const titleColors = {
+      'GM': '#ff8c00',    // orange
+      'FM': '#9370db',    // purple
+      'IM': '#20b2aa',    // teal
+      'NM': '#ffd700',    // yellow
+      'WGM': '#ff8c00',   // orange (same as GM)
+      'WIM': '#20b2aa',   // teal (same as IM)
+      'WFM': '#9370db',   // purple (same as FM)
+      'CM': '#ffffff',    // white
+      'WCM': '#ffffff',   // white
+    };
+
+    const x = PADDING + 10;
+    const centerY = y + barHeight / 2;
+
+    if (title) {
+      // Draw title in color
+      const titleColor = titleColors[title] || '#ffffff';
+      ctx.fillStyle = titleColor;
+      ctx.fillText(title, x, centerY);
+
+      // Measure title width to position name
+      const titleWidth = ctx.measureText(title).width;
+
+      // Draw name and rating in white
+      ctx.fillStyle = color;
+      const nameRating = rating ? ` ${displayName} ${rating}` : ` ${displayName}`;
+      ctx.fillText(nameRating, x + titleWidth, centerY);
+    } else {
+      // No title, just draw name and rating
+      ctx.fillStyle = color;
+      const nameRating = rating ? `${displayName} ${rating}` : displayName;
+      ctx.fillText(nameRating, x, centerY);
+    }
+
+    // Draw clock at far right edge
+    const clockW = 90;
+    const clockH = barHeight - 6;
+    const clockX = barW - clockW - 8; // 8px from right edge
+    const clockY = y + 3;
+
+    // Only draw clock background if active (green highlight)
+    // Inactive clocks blend with black bar
+    if (isActive) {
+      ctx.fillStyle = 'rgba(130, 180, 64, 0.95)';
+      ctx.fillRect(clockX, clockY, clockW, clockH);
+
+      ctx.strokeStyle = 'rgba(160, 200, 90, 1)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(clockX + 0.5, clockY + 0.5, clockW - 1, clockH - 1);
+    }
+
+    // Clock text - smaller with better padding
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${Math.round(PADDING * 0.34)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const totalSecs = Math.max(0, timeRemaining || 0);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = Math.floor(totalSecs % 60);
+    const tenths = Math.floor((totalSecs % 1) * 10);
+    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${tenths}`;
+
+    ctx.fillText(timeStr, clockX + clockW / 2, clockY + clockH / 2);
   }
 
-  drawSingleBar(topBarY, `${meta.blackName} (Black)`, '#d9d9d9', meta.blackRemainingSeconds);
-  drawSingleBar(bottomBarY, `${meta.whiteName} (White)`, '#f7f7f7', meta.whiteRemainingSeconds);
+  drawSingleBar(topBarY, meta.blackName, meta.blackRating, '#d9d9d9', meta.blackRemainingSeconds, meta.blackToMove);
+  drawSingleBar(bottomBarY, meta.whiteName, meta.whiteRating, '#f7f7f7', meta.whiteRemainingSeconds, meta.whiteToMove);
+}
+
+function drawCornerClocks(ctx, meta) {
+  // Clocks are now integrated into player name bars
+  // This function is no longer needed but kept for compatibility
+  return;
 }
 
 function drawBackground(ctx) {
@@ -365,11 +421,12 @@ function drawBackground(ctx) {
 
 // ── Frame builders ────────────────────────────────────────────────────────────
 
-function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves) {
+function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves, customMeta = null) {
   const canvas = createCanvas(CANVAS_SIZE, CANVAS_SIZE);
   const ctx    = canvas.getContext('2d');
   drawBackground(ctx);
-  drawPlayerNameBars(ctx, drawMoveLabel.meta);
+  drawPlayerNameBars(ctx, customMeta || drawMoveLabel.meta);
+  drawCornerClocks(ctx, customMeta || drawMoveLabel.meta);
   drawBoard(ctx, lastMove);
   drawCoords(ctx);
   drawStaticPieces(ctx, boardArray);
@@ -406,6 +463,7 @@ function renderTweenFrame(boardBefore, move, t, moveNumber, totalMoves) {
 
   drawBackground(ctx);
   drawPlayerNameBars(ctx, drawMoveLabel.meta);
+  drawCornerClocks(ctx, drawMoveLabel.meta);
   drawBoard(ctx, null);   // no highlight during tween
   drawCoords(ctx);
   drawStaticPieces(ctx, boardBefore, skipSquares);
@@ -480,41 +538,82 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     frameIndex++;
   }
 
-  // Intro hold
+  // Intro hold (no clocks for legacy JSON-based games)
   drawMoveLabel.meta = null;
   const introFrame = renderStaticFrame(boardStates[0], null, 0, '', totalMoves);
   for (let i = 0; i < INTRO_FRAMES; i++) saveFrame(introFrame);
 
   // Per-move animation
-  let whiteRemainingSeconds = totalTimeSeconds / 2;
-  let blackRemainingSeconds = totalTimeSeconds / 2;
+  let whiteRemainingSeconds = totalTimeSeconds;
+  let blackRemainingSeconds = totalTimeSeconds;
+
   for (let i = 0; i < history.length; i++) {
     const move = history[i];
     const moveSeconds = perMoveSeconds[i];
-    const { tweenFrames, holdFrames } = framePlanFromMoveSeconds(moveSeconds);
+
+    // Store time BEFORE this move
+    const whiteRemainingBefore = whiteRemainingSeconds;
+    const blackRemainingBefore = blackRemainingSeconds;
+
+    // Calculate time AFTER this move
     if (move.color === 'w') {
       whiteRemainingSeconds = Math.max(0, whiteRemainingSeconds - moveSeconds);
     } else {
       blackRemainingSeconds = Math.max(0, blackRemainingSeconds - moveSeconds);
     }
-    drawMoveLabel.meta = {
-      whiteName: 'White',
-      blackName: 'Black',
-      totalTimeSeconds,
-      elapsedSeconds: elapsedByMove[i],
-      whiteRemainingSeconds,
-      blackRemainingSeconds,
-    };
 
-    // Tween
+    const { tweenFrames, holdFrames } = framePlanFromMoveSeconds(moveSeconds);
+    const totalFrames = tweenFrames + holdFrames;
+    const timePerFrame = moveSeconds / totalFrames;
+
+    // Render tween frames with ticking clock
     for (let f = 0; f < tweenFrames; f++) {
+      const frameElapsed = f * timePerFrame;
       const t = tweenFrames === 1 ? 1 : f / (tweenFrames - 1);
+
+      drawMoveLabel.meta = {
+        whiteName: 'White',
+        blackName: 'Black',
+        whiteRating: null,
+        blackRating: null,
+        totalTimeSeconds,
+        elapsedSeconds: elapsedByMove[i] - moveSeconds + frameElapsed,
+        whiteRemainingSeconds: move.color === 'w'
+          ? Math.max(0, whiteRemainingBefore - frameElapsed)
+          : whiteRemainingBefore,
+        blackRemainingSeconds: move.color === 'b'
+          ? Math.max(0, blackRemainingBefore - frameElapsed)
+          : blackRemainingBefore,
+        whiteToMove: move.color === 'w',
+        blackToMove: move.color === 'b',
+      };
+
       saveFrame(renderTweenFrame(boardStates[i], move, t, i + 1, totalMoves));
     }
 
-    // Hold on settled position
-    const settled = renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves);
-    for (let h = 0; h < holdFrames; h++) saveFrame(settled);
+    // Render hold frames with ticking clock
+    for (let h = 0; h < holdFrames; h++) {
+      const frameElapsed = (tweenFrames + h) * timePerFrame;
+
+      drawMoveLabel.meta = {
+        whiteName: 'White',
+        blackName: 'Black',
+        whiteRating: null,
+        blackRating: null,
+        totalTimeSeconds,
+        elapsedSeconds: elapsedByMove[i] - moveSeconds + frameElapsed,
+        whiteRemainingSeconds: move.color === 'w'
+          ? Math.max(0, whiteRemainingBefore - frameElapsed)
+          : whiteRemainingBefore,
+        blackRemainingSeconds: move.color === 'b'
+          ? Math.max(0, blackRemainingBefore - frameElapsed)
+          : blackRemainingBefore,
+        whiteToMove: move.color === 'w',
+        blackToMove: move.color === 'b',
+      };
+
+      saveFrame(renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves));
+    }
 
     process.stdout.write(`\r  Animated move ${i + 1} / ${totalMoves}`);
   }
@@ -637,10 +736,12 @@ function parseHistoricalGame(jsonData, sourceName) {
   }
 
   const totalTimeSeconds = explicitTotalSeconds || perMoveSeconds.reduce((acc, value) => acc + value, 0);
+  const whiteRating = jsonData.whiteRating || null;
+  const blackRating = jsonData.blackRating || null;
   return {
     history,
     inputType: 'historical-json',
-    gameMeta: { whiteName, blackName, totalTimeSeconds, sourceName },
+    gameMeta: { whiteName, blackName, whiteRating, blackRating, totalTimeSeconds, sourceName },
     perMoveSeconds,
   };
 }
@@ -678,43 +779,102 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
   drawMoveLabel.meta = {
     whiteName: gameMeta.whiteName,
     blackName: gameMeta.blackName,
+    whiteRating: gameMeta.whiteRating,
+    blackRating: gameMeta.blackRating,
     totalTimeSeconds: gameMeta.totalTimeSeconds,
     elapsedSeconds: 0,
-    whiteRemainingSeconds: gameMeta.totalTimeSeconds / 2,
-    blackRemainingSeconds: gameMeta.totalTimeSeconds / 2,
+    whiteRemainingSeconds: gameMeta.totalTimeSeconds,
+    blackRemainingSeconds: gameMeta.totalTimeSeconds,
+    whiteToMove: true,
+    blackToMove: false,
   };
-  const introFrame = renderStaticFrame(boardStates[0], null, 0, '', totalMoves);
-  for (let i = 0; i < INTRO_FRAMES; i++) saveFrame(introFrame);
+
+  // Intro frames with ticking white clock (white to move first)
+  const timePerFrame = 1 / VIDEO_FPS;
+  for (let i = 0; i < INTRO_FRAMES; i++) {
+    const elapsedDuringIntro = i * timePerFrame;
+    const introMeta = {
+      ...drawMoveLabel.meta,
+      whiteRemainingSeconds: Math.max(0, drawMoveLabel.meta.whiteRemainingSeconds - elapsedDuringIntro),
+      whiteToMove: true,
+      blackToMove: false,
+    };
+    saveFrame(renderStaticFrame(boardStates[0], null, 0, '', totalMoves, introMeta));
+  }
 
   let elapsed = 0;
-  let whiteRemainingSeconds = gameMeta.totalTimeSeconds / 2;
-  let blackRemainingSeconds = gameMeta.totalTimeSeconds / 2;
+  let whiteRemainingSeconds = gameMeta.totalTimeSeconds;
+  let blackRemainingSeconds = gameMeta.totalTimeSeconds;
+
   for (let i = 0; i < history.length; i++) {
     const move = history[i];
     const moveSeconds = perMoveSeconds[i];
+
+    // Store time BEFORE this move
+    const whiteRemainingBefore = whiteRemainingSeconds;
+    const blackRemainingBefore = blackRemainingSeconds;
+
+    // Calculate time AFTER this move
     elapsed += moveSeconds;
     if (move.color === 'w') {
       whiteRemainingSeconds = Math.max(0, whiteRemainingSeconds - moveSeconds);
     } else {
       blackRemainingSeconds = Math.max(0, blackRemainingSeconds - moveSeconds);
     }
-    drawMoveLabel.meta = {
-      whiteName: gameMeta.whiteName,
-      blackName: gameMeta.blackName,
-      totalTimeSeconds: gameMeta.totalTimeSeconds,
-      elapsedSeconds: elapsed,
-      whiteRemainingSeconds,
-      blackRemainingSeconds,
-    };
-    const { tweenFrames, holdFrames } = framePlanFromMoveSeconds(moveSeconds);
 
+    const { tweenFrames, holdFrames } = framePlanFromMoveSeconds(moveSeconds);
+    const totalFrames = tweenFrames + holdFrames;
+    const timePerFrame = moveSeconds / totalFrames;
+
+    // Render tween frames with ticking clock
     for (let f = 0; f < tweenFrames; f++) {
+      const frameElapsed = f * timePerFrame;
       const t = tweenFrames === 1 ? 1 : f / (tweenFrames - 1);
+
+      drawMoveLabel.meta = {
+        whiteName: gameMeta.whiteName,
+        blackName: gameMeta.blackName,
+        whiteRating: gameMeta.whiteRating,
+        blackRating: gameMeta.blackRating,
+        totalTimeSeconds: gameMeta.totalTimeSeconds,
+        elapsedSeconds: elapsed - moveSeconds + frameElapsed,
+        whiteRemainingSeconds: move.color === 'w'
+          ? Math.max(0, whiteRemainingBefore - frameElapsed)
+          : whiteRemainingBefore,
+        blackRemainingSeconds: move.color === 'b'
+          ? Math.max(0, blackRemainingBefore - frameElapsed)
+          : blackRemainingBefore,
+        whiteToMove: move.color === 'w',
+        blackToMove: move.color === 'b',
+      };
+
       saveFrame(renderTweenFrame(boardStates[i], move, t, i + 1, totalMoves));
     }
 
-    const settled = renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves);
-    for (let h = 0; h < holdFrames; h++) saveFrame(settled);
+    // Render hold frames with ticking clock
+    for (let h = 0; h < holdFrames; h++) {
+      const frameElapsed = (tweenFrames + h) * timePerFrame;
+
+      drawMoveLabel.meta = {
+        whiteName: gameMeta.whiteName,
+        blackName: gameMeta.blackName,
+        whiteRating: gameMeta.whiteRating,
+        blackRating: gameMeta.blackRating,
+        totalTimeSeconds: gameMeta.totalTimeSeconds,
+        elapsedSeconds: elapsed - moveSeconds + frameElapsed,
+        whiteRemainingSeconds: move.color === 'w'
+          ? Math.max(0, whiteRemainingBefore - frameElapsed)
+          : whiteRemainingBefore,
+        blackRemainingSeconds: move.color === 'b'
+          ? Math.max(0, blackRemainingBefore - frameElapsed)
+          : blackRemainingBefore,
+        whiteToMove: move.color === 'w',
+        blackToMove: move.color === 'b',
+      };
+
+      saveFrame(renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves));
+    }
+
     process.stdout.write(`\r  Animated move ${i + 1} / ${totalMoves}`);
   }
   drawMoveLabel.meta = null;
@@ -756,7 +916,9 @@ async function historicalDbGameToVideo(gameIdInput, outputPath) {
         g.id,
         g.total_time_seconds,
         wp.display_name AS white_name,
-        bp.display_name AS black_name
+        bp.display_name AS black_name,
+        g.metadata->>'whiteRating' AS white_rating,
+        g.metadata->>'blackRating' AS black_rating
       FROM games g
       JOIN players wp ON wp.id = g.white_player_id
       JOIN players bp ON bp.id = g.black_player_id
@@ -783,6 +945,8 @@ async function historicalDbGameToVideo(gameIdInput, outputPath) {
       whitePlayer: gameRow.white_name,
       blackPlayer: gameRow.black_name,
       totalTimeSeconds: gameRow.total_time_seconds,
+      whiteRating: gameRow.white_rating,
+      blackRating: gameRow.black_rating,
       moves: movesResult.rows.map((row) => (
         row.played_at_seconds == null
           ? { san: row.san }
