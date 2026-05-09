@@ -11,7 +11,8 @@ const path = require('path');
 const SQUARE_SIZE  = 80;
 const BOARD_SIZE   = SQUARE_SIZE * 8;
 const PADDING      = 40;
-const CANVAS_SIZE  = BOARD_SIZE + PADDING * 2;
+const EVAL_BAR_WIDTH = 40;
+const CANVAS_SIZE  = BOARD_SIZE + PADDING * 2 + EVAL_BAR_WIDTH;
 
 const VIDEO_FPS    = 24;
 const TWEEN_FRAMES = 16;   // frames of sliding animation per move  (~0.67s)
@@ -416,6 +417,52 @@ function drawCornerClocks(ctx, meta) {
   return;
 }
 
+function drawEvalBar(ctx, evalCp) {
+  if (evalCp === null || evalCp === undefined) return;
+
+  // Eval bar immediately to the right of the board
+  const barX = PADDING + BOARD_SIZE;
+  const barY = PADDING;
+  const barHeight = BOARD_SIZE;
+  const barWidth = EVAL_BAR_WIDTH;
+
+  // Draw background (dark gray)
+  ctx.fillStyle = '#2d2d2d';
+  ctx.fillRect(barX, barY, barWidth, barHeight);
+
+  // Clamp eval to reasonable range (-1000 to +1000 centipawns = -10 to +10 pawns)
+  const clampedEval = Math.max(-1000, Math.min(1000, evalCp));
+
+  // Convert eval to percentage (0.5 = equal, 0 = black winning, 1 = white winning)
+  const evalPercent = (clampedEval + 1000) / 2000;
+
+  // Calculate bar fill (white from top, black from bottom)
+  const whiteHeight = barHeight * evalPercent;
+
+  // Draw white portion (from top)
+  ctx.fillStyle = '#f0f0f0';
+  ctx.fillRect(barX, barY, barWidth, whiteHeight);
+
+  // Draw black portion (from bottom)
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(barX, barY + whiteHeight, barWidth, barHeight - whiteHeight);
+
+  // Draw border
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+  // Draw eval text
+  ctx.fillStyle = evalCp > 0 ? '#1a1a1a' : '#f0f0f0';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const evalText = (Math.abs(evalCp) / 100).toFixed(1);
+  const textY = evalCp > 0 ? barY + whiteHeight / 2 : barY + whiteHeight + (barHeight - whiteHeight) / 2;
+  ctx.fillText(evalText, barX + barWidth / 2, textY);
+}
+
 function drawBackground(ctx) {
   const outerPadding = BOARD_FRAME_OUTER_PADDING;
   const frameX = PADDING - outerPadding;
@@ -453,6 +500,7 @@ function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves, cu
   drawBackground(ctx);
   drawPlayerNameBars(ctx, customMeta || drawMoveLabel.meta);
   drawCornerClocks(ctx, customMeta || drawMoveLabel.meta);
+  drawEvalBar(ctx, (customMeta || drawMoveLabel.meta)?.evalCp);
   drawBoard(ctx, lastMove);
   drawCoords(ctx);
   drawStaticPieces(ctx, boardArray);
@@ -491,6 +539,7 @@ function renderTweenFrame(boardBefore, move, t, moveNumber, totalMoves) {
   drawBackground(ctx);
   drawPlayerNameBars(ctx, drawMoveLabel.meta);
   drawCornerClocks(ctx, drawMoveLabel.meta);
+  drawEvalBar(ctx, drawMoveLabel.meta?.evalCp);
   drawBoard(ctx, null);   // no highlight during tween
   drawCoords(ctx);
   drawStaticPieces(ctx, boardBefore, skipSquares);
@@ -791,11 +840,13 @@ function parseHistoricalGame(jsonData, sourceName) {
   const blackRating = jsonData.blackRating || null;
   const whiteTitle = jsonData.whiteTitle || null;
   const blackTitle = jsonData.blackTitle || null;
+  const evals = jsonData.evals || null;
   return {
     history,
     inputType: 'historical-json',
     gameMeta: { whiteName, blackName, whiteTitle, blackTitle, whiteRating, blackRating, totalTimeSeconds, sourceName },
     perMoveSeconds,
+    evals,
   };
 }
 
@@ -861,7 +912,7 @@ async function encodeVideoWithAudio(framePattern, soundEvents, videoDuration, ou
 }
 
 async function historicalParsedToVideo(parsedGame, outputPath) {
-  const { history, gameMeta, perMoveSeconds } = parsedGame;
+  const { history, gameMeta, perMoveSeconds, evals } = parsedGame;
   await preloadStauntonPieces();
 
   const totalMoves = history.length;
@@ -909,6 +960,7 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
 
   // Intro frames with ticking white clock (white to move first)
   const timePerFrame = 1 / VIDEO_FPS;
+  const startingEval = evals?.get(1)?.evalCp || 0;
   for (let i = 0; i < INTRO_FRAMES; i++) {
     const elapsedDuringIntro = i * timePerFrame;
     const introMeta = {
@@ -916,6 +968,7 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
       whiteRemainingSeconds: Math.max(0, drawMoveLabel.meta.whiteRemainingSeconds - elapsedDuringIntro),
       whiteToMove: true,
       blackToMove: false,
+      evalCp: startingEval,
     };
     saveFrame(renderStaticFrame(boardStates[0], null, 0, '', totalMoves, introMeta));
   }
@@ -962,9 +1015,17 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
     soundEvents.push({ timestamp: videoTimestamp, soundFile });
 
     // Render tween frames with current player's clock highlighted and ticking
+    // Get eval for position BEFORE and AFTER this move for smooth interpolation
+    const prevEval = evals?.get(i)?.evalCp ?? 0;
+    const moveEval = evals?.get(i + 1)?.evalCp ?? prevEval;
+
     for (let f = 0; f < tweenFrames; f++) {
       const frameElapsed = f * timePerFrame;
       const t = tweenFrames === 1 ? 1 : f / (tweenFrames - 1);
+      const ease = easeInOut(t);
+
+      // Interpolate eval smoothly from previous to current
+      const interpolatedEval = prevEval + (moveEval - prevEval) * ease;
 
       drawMoveLabel.meta = {
         whiteName: gameMeta.whiteName,
@@ -983,6 +1044,7 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
           : blackRemainingBefore,
         whiteToMove: move.color === 'w',
         blackToMove: move.color === 'b',
+        evalCp: interpolatedEval,
       };
 
       saveFrame(renderTweenFrame(boardStates[i], move, t, i + 1, totalMoves));
@@ -1014,6 +1076,7 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
           : blackRemainingSeconds,
         whiteToMove: nextPlayerIsWhite,
         blackToMove: nextPlayerIsBlack,
+        evalCp: moveEval,
       };
 
       saveFrame(renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves));
@@ -1084,6 +1147,24 @@ async function historicalDbGameToVideo(gameIdInput, outputPath) {
       throw new Error(`Game ${gameId} has no moves in database.`);
     }
 
+    // Fetch evaluations
+    const evalsResult = await client.query(
+      `SELECT ply, eval_cp, mate_in
+       FROM game_evals
+       WHERE game_id = $1
+       ORDER BY ply ASC`,
+      [gameId],
+    );
+
+    // Create a map of ply -> eval
+    const evalsByPly = new Map();
+    evalsResult.rows.forEach(row => {
+      evalsByPly.set(row.ply, {
+        evalCp: row.eval_cp,
+        mateIn: row.mate_in,
+      });
+    });
+
     const gameRow = gameResult.rows[0];
     const jsonData = {
       whitePlayer: gameRow.white_name,
@@ -1098,6 +1179,7 @@ async function historicalDbGameToVideo(gameIdInput, outputPath) {
           ? { san: row.san }
           : { san: row.san, playedAt: row.played_at_seconds }
       )),
+      evals: evalsByPly,
     };
     const sourceName = `db-game-${gameId}`;
     const parsedGame = parseHistoricalGame(jsonData, sourceName);
