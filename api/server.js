@@ -7,6 +7,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { Chess } = require('chess.js');
 const { Pool } = require('pg');
+const swaggerUi = require('swagger-ui-express');
 
 const PORT = Number(process.env.PORT || 3001);
 const DEFAULT_DB_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/chess_video';
@@ -14,6 +15,341 @@ const pool = new Pool({ connectionString: DEFAULT_DB_URL });
 const app = express();
 
 app.use(express.json({ limit: '10mb' }));
+
+const openApiSpec = {
+  openapi: '3.0.3',
+  info: {
+    title: 'Chess Video API',
+    version: '1.0.0',
+    description: 'Ingest chess games into Postgres and render stored games to video.',
+  },
+  servers: [
+    {
+      url: `http://localhost:${PORT}`,
+      description: 'Local development server',
+    },
+  ],
+  tags: [
+    { name: 'System' },
+    { name: 'Games' },
+    { name: 'Ingestion' },
+    { name: 'Rendering' },
+  ],
+  paths: {
+    '/health': {
+      get: {
+        tags: ['System'],
+        summary: 'Check API and database health',
+        responses: {
+          200: {
+            description: 'Service is healthy',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/HealthResponse' },
+              },
+            },
+          },
+          500: {
+            description: 'Health check failed',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/games': {
+      get: {
+        tags: ['Games'],
+        summary: 'List games from Postgres',
+        parameters: [
+          {
+            name: 'limit',
+            in: 'query',
+            description: 'Maximum number of games to return',
+            schema: { type: 'integer', minimum: 1, maximum: 200, default: 20 },
+          },
+          {
+            name: 'offset',
+            in: 'query',
+            description: 'Number of games to skip',
+            schema: { type: 'integer', minimum: 0, default: 0 },
+          },
+          {
+            name: 'q',
+            in: 'query',
+            description: 'Search player names or event text',
+            schema: { type: 'string' },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Game list',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/GamesListResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/ingest/lichess': {
+      post: {
+        tags: ['Ingestion'],
+        summary: 'Ingest games directly from the Lichess API',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/IngestLichessRequest' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Ingestion summary',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/IngestResponse' },
+              },
+            },
+          },
+          400: {
+            description: 'Invalid request',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          502: {
+            description: 'Upstream API failure',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/ingest/pgn': {
+      post: {
+        tags: ['Ingestion'],
+        summary: 'Ingest games from a local PGN file',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/IngestPgnRequest' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Ingestion summary',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/IngestResponse' },
+              },
+            },
+          },
+          400: {
+            description: 'Invalid request',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          404: {
+            description: 'PGN file not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/render/game/{id}': {
+      post: {
+        tags: ['Rendering'],
+        summary: 'Render a stored game to MP4',
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            description: 'Database game id',
+            schema: { type: 'integer', minimum: 1 },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/RenderGameRequest' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Render finished successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/RenderGameResponse' },
+              },
+            },
+          },
+          400: {
+            description: 'Invalid request',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          500: {
+            description: 'Render failed',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/RenderFailureResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  components: {
+    schemas: {
+      HealthResponse: {
+        type: 'object',
+        properties: {
+          ok: { type: 'boolean', example: true },
+        },
+        required: ['ok'],
+      },
+      ErrorResponse: {
+        type: 'object',
+        properties: {
+          error: { type: 'string' },
+        },
+        required: ['error'],
+      },
+      GameListItem: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer', format: 'int64' },
+          white: { type: 'string' },
+          black: { type: 'string' },
+          event: { type: 'string', nullable: true },
+          game_date: { type: 'string', format: 'date', nullable: true },
+          result: { type: 'string', nullable: true },
+          move_count: { type: 'integer' },
+        },
+        required: ['id', 'white', 'black', 'move_count'],
+      },
+      GamesListResponse: {
+        type: 'object',
+        properties: {
+          games: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/GameListItem' },
+          },
+        },
+        required: ['games'],
+      },
+      IngestLichessRequest: {
+        type: 'object',
+        properties: {
+          username: { type: 'string', example: 'MagnusCarlsen' },
+          max: { type: 'integer', minimum: 1, maximum: 200, example: 20 },
+          perf: {
+            type: 'string',
+            example: 'blitz',
+            description: 'Use "all" or a Lichess perf type such as blitz or rapid.',
+          },
+        },
+        required: ['username'],
+      },
+      IngestPgnRequest: {
+        type: 'object',
+        properties: {
+          filePath: {
+            type: 'string',
+            example: '/absolute/path/to/games.pgn',
+          },
+          maxGames: { type: 'integer', minimum: 1, maximum: 1000, example: 100 },
+        },
+        required: ['filePath'],
+      },
+      IngestResponse: {
+        type: 'object',
+        properties: {
+          source: { type: 'string', example: 'lichess' },
+          username: { type: 'string', nullable: true },
+          filePath: { type: 'string', nullable: true },
+          fetched: { type: 'integer', nullable: true },
+          parsed: { type: 'integer', nullable: true },
+          imported: { type: 'integer' },
+          skipped: { type: 'integer' },
+          errors: { type: 'integer' },
+        },
+        required: ['imported', 'skipped', 'errors'],
+      },
+      RenderGameRequest: {
+        type: 'object',
+        properties: {
+          output: {
+            type: 'string',
+            example: 'my-video.mp4',
+            description: 'Output filename placed under the local output/ directory.',
+          },
+        },
+      },
+      RenderGameResponse: {
+        type: 'object',
+        properties: {
+          ok: { type: 'boolean', example: true },
+          gameId: { type: 'integer', format: 'int64' },
+          output: { type: 'string' },
+          logs: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+        },
+        required: ['ok', 'gameId', 'output', 'logs'],
+      },
+      RenderFailureResponse: {
+        type: 'object',
+        properties: {
+          error: { type: 'string' },
+          exitCode: { type: 'integer', nullable: true },
+          details: { type: 'string', nullable: true },
+        },
+        required: ['error'],
+      },
+    },
+  },
+};
+
+app.get('/openapi.json', (_req, res) => {
+  res.json(openApiSpec);
+});
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+  explorer: true,
+  swaggerOptions: {
+    docExpansion: 'list',
+    persistAuthorization: false,
+  },
+}));
 
 function normalizeName(name) {
   return String(name || '')

@@ -10,6 +10,10 @@ npm run api:start
 
 Default URL: `http://localhost:3001`
 
+Swagger UI:
+- `http://localhost:3001/api-docs`
+- OpenAPI JSON: `http://localhost:3001/openapi.json`
+
 ## Endpoints
 
 ### Health
