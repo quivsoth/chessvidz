@@ -21,6 +21,7 @@ const DEFAULT_DB_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres
 const PLAYER_NAME_BAR_HEIGHT = Math.round(PADDING * 0.6);
 const PLAYER_NAME_BAR_EDGE_MARGIN = 2;
 const BOARD_FRAME_OUTER_PADDING = Math.round(PADDING * 0.22);
+const ASSETS_DIR = path.join(__dirname, 'assets');
 
 const COLORS = {
   light:          '#f0d9b5',
@@ -110,6 +111,24 @@ function framePlanFromMoveSeconds(moveSeconds) {
   const tweenFrames = Math.max(6, Math.min(20, Math.round(totalFrames * 0.45)));
   const holdFrames = Math.max(2, totalFrames - tweenFrames);
   return { tweenFrames, holdFrames };
+}
+
+function getSoundForMove(move, isCheck) {
+  // Priority: promotion > capture > castle > check > regular move
+  if (move.flags && move.flags.includes('p')) {
+    return 'promote.mp3';
+  }
+  if (move.captured || (move.flags && move.flags.includes('e'))) {
+    return 'capture.mp3';
+  }
+  if (move.flags && (move.flags.includes('k') || move.flags.includes('q'))) {
+    return 'castle.mp3';
+  }
+  if (isCheck) {
+    return 'move-check.mp3';
+  }
+  // Alternate between self/opponent based on color
+  return move.color === 'w' ? 'move-self.mp3' : 'move-opponent.mp3';
 }
 
 async function preloadStauntonPieces() {
@@ -284,6 +303,14 @@ function drawMoveLabel(ctx, moveNumber, san, totalMoves) {
   // No move notation display - keep it clean
 }
 
+function extractTitleAndName(name) {
+  const match = String(name || '').match(/^(GM|IM|FM|WGM|WIM|WFM|NM|CM|WCM)\s+(.+)$/);
+  return {
+    title: match ? match[1] : null,
+    displayName: match ? match[2] : String(name || ''),
+  };
+}
+
 function drawPlayerNameBars(ctx, meta) {
   if (!meta) return;
 
@@ -295,7 +322,7 @@ function drawPlayerNameBars(ctx, meta) {
   const topBarY = topMargin;
   const bottomBarY = CANVAS_SIZE - barHeight - bottomMargin;
 
-  function drawSingleBar(y, name, rating, color, timeRemaining, isActive) {
+  function drawSingleBar(y, name, title, rating, color, timeRemaining, isActive) {
     // Draw full-width black bar (edge to edge)
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
     ctx.fillRect(barX, y, barW, barHeight);
@@ -308,10 +335,9 @@ function drawPlayerNameBars(ctx, meta) {
     ctx.font = `bold ${Math.round(PADDING * 0.32)}px sans-serif`;
     ctx.textAlign = 'left';
 
-    // Extract title from player name (e.g., "GM Magnus Carlsen" -> "GM", "Magnus Carlsen")
-    const titleMatch = name.match(/^(GM|IM|FM|WGM|WIM|WFM|NM|CM|WCM)\s+(.+)$/);
-    const title = titleMatch ? titleMatch[1] : null;
-    const displayName = titleMatch ? titleMatch[2] : name;
+    const parsed = extractTitleAndName(name);
+    const effectiveTitle = title || parsed.title;
+    const displayName = title ? (name.startsWith(`${title} `) ? name.slice(title.length + 1) : name) : parsed.displayName;
 
     const titleColors = {
       'GM': '#ff8c00',    // orange
@@ -328,14 +354,14 @@ function drawPlayerNameBars(ctx, meta) {
     const x = PADDING + 10;
     const centerY = y + barHeight / 2;
 
-    if (title) {
+    if (effectiveTitle) {
       // Draw title in color
-      const titleColor = titleColors[title] || '#ffffff';
+      const titleColor = titleColors[effectiveTitle] || '#ffffff';
       ctx.fillStyle = titleColor;
-      ctx.fillText(title, x, centerY);
+      ctx.fillText(effectiveTitle, x, centerY);
 
       // Measure title width to position name
-      const titleWidth = ctx.measureText(title).width;
+      const titleWidth = ctx.measureText(effectiveTitle).width;
 
       // Draw name and rating in white
       ctx.fillStyle = color;
@@ -380,8 +406,8 @@ function drawPlayerNameBars(ctx, meta) {
     ctx.fillText(timeStr, clockX + clockW / 2, clockY + clockH / 2);
   }
 
-  drawSingleBar(topBarY, meta.blackName, meta.blackRating, '#d9d9d9', meta.blackRemainingSeconds, meta.blackToMove);
-  drawSingleBar(bottomBarY, meta.whiteName, meta.whiteRating, '#f7f7f7', meta.whiteRemainingSeconds, meta.whiteToMove);
+  drawSingleBar(topBarY, meta.blackName, meta.blackTitle, meta.blackRating, '#d9d9d9', meta.blackRemainingSeconds, meta.blackToMove);
+  drawSingleBar(bottomBarY, meta.whiteName, meta.whiteTitle, meta.whiteRating, '#f7f7f7', meta.whiteRemainingSeconds, meta.whiteToMove);
 }
 
 function drawCornerClocks(ctx, meta) {
@@ -448,7 +474,8 @@ function renderTweenFrame(boardBefore, move, t, moveNumber, totalMoves) {
   // Squares to skip when drawing static pre-move pieces
   const skipSquares = new Set();
   skipSquares.add(move.from);             // lifted piece
-  if (move.captured) skipSquares.add(move.to);  // captured piece vanishes immediately
+  // Captured piece stays until capturing piece is almost there (90% through animation)
+  if (move.captured && t > 0.9) skipSquares.add(move.to);
 
   // Castling: also lift the rook
   let rookFrom = null, rookTo = null, rookPiece = null;
@@ -524,7 +551,7 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
 
   // Frames directory
   const framesDir = path.join(__dirname, 'frames');
-  if (fs.existsSync(framesDir)) fs.rmSync(framesDir, { recursive: true });
+  if (fs.existsSync(framesDir)) fs.rmSync(framesDir, { recursive: true, force: true });
   fs.mkdirSync(framesDir);
 
   const outputDir = path.join(__dirname, 'output');
@@ -532,6 +559,8 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
   const resolvedOutputPath = path.join(outputDir, path.basename(outputPath));
 
   let frameIndex = 0;
+  const soundEvents = []; // Track sound effects with timestamps
+
   function saveFrame(buf) {
     const file = path.join(framesDir, `frame_${String(frameIndex).padStart(6, '0')}.png`);
     fs.writeFileSync(file, buf);
@@ -543,9 +572,14 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
   const introFrame = renderStaticFrame(boardStates[0], null, 0, '', totalMoves);
   for (let i = 0; i < INTRO_FRAMES; i++) saveFrame(introFrame);
 
+  // Add game-start sound
+  const introSeconds = INTRO_FRAMES / VIDEO_FPS;
+  soundEvents.push({ timestamp: 0, soundFile: 'game-start.mp3' });
+
   // Per-move animation
   let whiteRemainingSeconds = totalTimeSeconds;
   let blackRemainingSeconds = totalTimeSeconds;
+  let elapsed = 0;
 
   for (let i = 0; i < history.length; i++) {
     const move = history[i];
@@ -556,6 +590,7 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     const blackRemainingBefore = blackRemainingSeconds;
 
     // Calculate time AFTER this move
+    elapsed += moveSeconds;
     if (move.color === 'w') {
       whiteRemainingSeconds = Math.max(0, whiteRemainingSeconds - moveSeconds);
     } else {
@@ -566,7 +601,20 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     const totalFrames = tweenFrames + holdFrames;
     const timePerFrame = moveSeconds / totalFrames;
 
-    // Render tween frames with ticking clock
+    // Check if move causes check
+    const chess = new Chess();
+    for (let j = 0; j <= i; j++) {
+      chess.move(history[j].san);
+    }
+    const isCheck = chess.inCheck();
+
+    // Add sound event at the END of tween animation (when piece settles)
+    const tweenDuration = (tweenFrames / VIDEO_FPS);
+    const videoTimestamp = introSeconds + (elapsed - moveSeconds) + tweenDuration;
+    const soundFile = getSoundForMove(move, isCheck);
+    soundEvents.push({ timestamp: videoTimestamp, soundFile });
+
+    // Render tween frames with current player's clock highlighted and ticking
     for (let f = 0; f < tweenFrames; f++) {
       const frameElapsed = f * timePerFrame;
       const t = tweenFrames === 1 ? 1 : f / (tweenFrames - 1);
@@ -591,9 +639,13 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
       saveFrame(renderTweenFrame(boardStates[i], move, t, i + 1, totalMoves));
     }
 
-    // Render hold frames with ticking clock
+    // Render hold frames - piece has settled, next player's turn starts and their clock ticks
     for (let h = 0; h < holdFrames; h++) {
-      const frameElapsed = (tweenFrames + h) * timePerFrame;
+      const holdElapsed = h * timePerFrame;
+
+      // Next player is now highlighted and their clock starts ticking
+      const nextPlayerIsWhite = move.color === 'b';
+      const nextPlayerIsBlack = move.color === 'w';
 
       drawMoveLabel.meta = {
         whiteName: 'White',
@@ -601,15 +653,16 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
         whiteRating: null,
         blackRating: null,
         totalTimeSeconds,
-        elapsedSeconds: elapsedByMove[i] - moveSeconds + frameElapsed,
-        whiteRemainingSeconds: move.color === 'w'
-          ? Math.max(0, whiteRemainingBefore - frameElapsed)
-          : whiteRemainingBefore,
-        blackRemainingSeconds: move.color === 'b'
-          ? Math.max(0, blackRemainingBefore - frameElapsed)
-          : blackRemainingBefore,
-        whiteToMove: move.color === 'w',
-        blackToMove: move.color === 'b',
+        elapsedSeconds: elapsed + holdElapsed,
+        // Next player's clock ticks down immediately
+        whiteRemainingSeconds: nextPlayerIsWhite
+          ? Math.max(0, whiteRemainingSeconds - holdElapsed)
+          : whiteRemainingSeconds,
+        blackRemainingSeconds: nextPlayerIsBlack
+          ? Math.max(0, blackRemainingSeconds - holdElapsed)
+          : blackRemainingSeconds,
+        whiteToMove: nextPlayerIsWhite,
+        blackToMove: nextPlayerIsBlack,
       };
 
       saveFrame(renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves));
@@ -620,21 +673,19 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
   drawMoveLabel.meta = null;
   console.log(`\n  All frames rendered (${frameIndex} total).`);
 
+  // Add game-end sound at the end
+  const totalVideoDuration = frameIndex / VIDEO_FPS;
+  soundEvents.push({ timestamp: totalVideoDuration - 0.5, soundFile: 'game-end.mp3' });
+
   // Encode
-  console.log(`Encoding to ${resolvedOutputPath} …`);
+  console.log(`Encoding to ${resolvedOutputPath} with ${soundEvents.length} sound effects …`);
   try {
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(path.join(framesDir, 'frame_%06d.png'))
-        .inputFPS(VIDEO_FPS)
-        .videoCodec('libx264')
-        .outputOptions(['-pix_fmt yuv420p', '-crf 18', '-preset slow'])
-        .fps(VIDEO_FPS)
-        .output(resolvedOutputPath)
-        .on('end', resolve)
-        .on('error', reject)
-        .run();
-    });
+    await encodeVideoWithAudio(
+      path.join(framesDir, 'frame_%06d.png'),
+      soundEvents,
+      totalVideoDuration,
+      resolvedOutputPath
+    );
     console.log(`Done! Video saved to: ${resolvedOutputPath}`);
   } finally {
     if (fs.existsSync(framesDir)) {
@@ -738,12 +789,75 @@ function parseHistoricalGame(jsonData, sourceName) {
   const totalTimeSeconds = explicitTotalSeconds || perMoveSeconds.reduce((acc, value) => acc + value, 0);
   const whiteRating = jsonData.whiteRating || null;
   const blackRating = jsonData.blackRating || null;
+  const whiteTitle = jsonData.whiteTitle || null;
+  const blackTitle = jsonData.blackTitle || null;
   return {
     history,
     inputType: 'historical-json',
-    gameMeta: { whiteName, blackName, whiteRating, blackRating, totalTimeSeconds, sourceName },
+    gameMeta: { whiteName, blackName, whiteTitle, blackTitle, whiteRating, blackRating, totalTimeSeconds, sourceName },
     perMoveSeconds,
   };
+}
+
+async function encodeVideoWithAudio(framePattern, soundEvents, videoDuration, outputPath) {
+  return new Promise((resolve, reject) => {
+    const cmd = ffmpeg();
+
+    // Input 0: video frames
+    cmd.input(framePattern)
+       .inputFPS(VIDEO_FPS);
+
+    if (soundEvents.length === 0) {
+      // No sounds, create silent audio
+      cmd.input('anullsrc=r=44100:cl=stereo')
+         .inputFormat('lavfi')
+         .outputOptions(['-map', '0:v', '-map', '1:a']);
+    } else {
+      // Add each sound file as input
+      const validEvents = [];
+      soundEvents.forEach((event) => {
+        const soundPath = path.join(ASSETS_DIR, event.soundFile);
+        if (fs.existsSync(soundPath)) {
+          cmd.input(soundPath);
+          validEvents.push(event);
+        } else {
+          console.warn(`Warning: Sound file not found: ${soundPath}`);
+        }
+      });
+
+      // Build filter complex to delay and mix all sounds
+      const filterParts = [];
+
+      // Delay each sound by its timestamp
+      validEvents.forEach((event, idx) => {
+        const inputIdx = idx + 1; // Inputs are: 0=video, 1+=sounds
+        const delayMs = Math.round(event.timestamp * 1000);
+        filterParts.push(`[${inputIdx}:a]adelay=delays=${delayMs}:all=1[a${idx}]`);
+      });
+
+      // Mix all delayed sounds together
+      const mixInputs = validEvents.map((_, idx) => `[a${idx}]`).join('');
+      filterParts.push(`${mixInputs}amix=inputs=${validEvents.length}:duration=longest:dropout_transition=0,apad=whole_dur=${videoDuration}[aout]`);
+
+      const filterComplex = filterParts.join(';');
+      cmd.complexFilter(filterComplex);
+      cmd.outputOptions(['-map', '0:v', '-map', '[aout]']);
+    }
+
+    cmd.videoCodec('libx264')
+       .audioCodec('aac')
+       .audioBitrate('192k')
+       .outputOptions([
+         '-pix_fmt yuv420p',
+         '-crf 18',
+         '-preset slow'
+       ])
+       .fps(VIDEO_FPS)
+       .output(outputPath)
+       .on('end', resolve)
+       .on('error', reject)
+       .run();
+  });
 }
 
 async function historicalParsedToVideo(parsedGame, outputPath) {
@@ -770,6 +884,8 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
   const resolvedOutputPath = path.join(outputDir, path.basename(outputPath));
 
   let frameIndex = 0;
+  const soundEvents = []; // Track sound effects with timestamps
+
   function saveFrame(buf) {
     const file = path.join(framesDir, `frame_${String(frameIndex).padStart(6, '0')}.png`);
     fs.writeFileSync(file, buf);
@@ -779,6 +895,8 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
   drawMoveLabel.meta = {
     whiteName: gameMeta.whiteName,
     blackName: gameMeta.blackName,
+    whiteTitle: gameMeta.whiteTitle,
+    blackTitle: gameMeta.blackTitle,
     whiteRating: gameMeta.whiteRating,
     blackRating: gameMeta.blackRating,
     totalTimeSeconds: gameMeta.totalTimeSeconds,
@@ -806,6 +924,10 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
   let whiteRemainingSeconds = gameMeta.totalTimeSeconds;
   let blackRemainingSeconds = gameMeta.totalTimeSeconds;
 
+  // Add game-start sound
+  const introSeconds = INTRO_FRAMES / VIDEO_FPS;
+  soundEvents.push({ timestamp: 0, soundFile: 'game-start.mp3' });
+
   for (let i = 0; i < history.length; i++) {
     const move = history[i];
     const moveSeconds = perMoveSeconds[i];
@@ -826,7 +948,20 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
     const totalFrames = tweenFrames + holdFrames;
     const timePerFrame = moveSeconds / totalFrames;
 
-    // Render tween frames with ticking clock
+    // Check if move causes check by examining board state after move
+    const chess = new Chess();
+    for (let j = 0; j <= i; j++) {
+      chess.move(history[j].san);
+    }
+    const isCheck = chess.inCheck();
+
+    // Add sound event at the END of tween animation (when piece settles)
+    const tweenDuration = (tweenFrames / VIDEO_FPS);
+    const videoTimestamp = introSeconds + (elapsed - moveSeconds) + tweenDuration;
+    const soundFile = getSoundForMove(move, isCheck);
+    soundEvents.push({ timestamp: videoTimestamp, soundFile });
+
+    // Render tween frames with current player's clock highlighted and ticking
     for (let f = 0; f < tweenFrames; f++) {
       const frameElapsed = f * timePerFrame;
       const t = tweenFrames === 1 ? 1 : f / (tweenFrames - 1);
@@ -834,6 +969,8 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
       drawMoveLabel.meta = {
         whiteName: gameMeta.whiteName,
         blackName: gameMeta.blackName,
+        whiteTitle: gameMeta.whiteTitle,
+        blackTitle: gameMeta.blackTitle,
         whiteRating: gameMeta.whiteRating,
         blackRating: gameMeta.blackRating,
         totalTimeSeconds: gameMeta.totalTimeSeconds,
@@ -851,25 +988,32 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
       saveFrame(renderTweenFrame(boardStates[i], move, t, i + 1, totalMoves));
     }
 
-    // Render hold frames with ticking clock
+    // Render hold frames - piece has settled, next player's turn starts and their clock ticks
     for (let h = 0; h < holdFrames; h++) {
-      const frameElapsed = (tweenFrames + h) * timePerFrame;
+      const holdElapsed = h * timePerFrame;
+
+      // Next player is now highlighted and their clock starts ticking
+      const nextPlayerIsWhite = move.color === 'b';
+      const nextPlayerIsBlack = move.color === 'w';
 
       drawMoveLabel.meta = {
         whiteName: gameMeta.whiteName,
         blackName: gameMeta.blackName,
+        whiteTitle: gameMeta.whiteTitle,
+        blackTitle: gameMeta.blackTitle,
         whiteRating: gameMeta.whiteRating,
         blackRating: gameMeta.blackRating,
         totalTimeSeconds: gameMeta.totalTimeSeconds,
-        elapsedSeconds: elapsed - moveSeconds + frameElapsed,
-        whiteRemainingSeconds: move.color === 'w'
-          ? Math.max(0, whiteRemainingBefore - frameElapsed)
-          : whiteRemainingBefore,
-        blackRemainingSeconds: move.color === 'b'
-          ? Math.max(0, blackRemainingBefore - frameElapsed)
-          : blackRemainingBefore,
-        whiteToMove: move.color === 'w',
-        blackToMove: move.color === 'b',
+        elapsedSeconds: elapsed + holdElapsed,
+        // Next player's clock ticks down immediately
+        whiteRemainingSeconds: nextPlayerIsWhite
+          ? Math.max(0, whiteRemainingSeconds - holdElapsed)
+          : whiteRemainingSeconds,
+        blackRemainingSeconds: nextPlayerIsBlack
+          ? Math.max(0, blackRemainingSeconds - holdElapsed)
+          : blackRemainingSeconds,
+        whiteToMove: nextPlayerIsWhite,
+        blackToMove: nextPlayerIsBlack,
       };
 
       saveFrame(renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves));
@@ -880,20 +1024,18 @@ async function historicalParsedToVideo(parsedGame, outputPath) {
   drawMoveLabel.meta = null;
   console.log(`\n  All frames rendered (${frameIndex} total).`);
 
-  console.log(`Encoding to ${resolvedOutputPath} …`);
+  // Add game-end sound at the end
+  const totalVideoDuration = frameIndex / VIDEO_FPS;
+  soundEvents.push({ timestamp: totalVideoDuration - 0.5, soundFile: 'game-end.mp3' });
+
+  console.log(`Encoding to ${resolvedOutputPath} with ${soundEvents.length} sound effects …`);
   try {
-    await new Promise((resolve, reject) => {
-      ffmpeg()
-        .input(path.join(framesDir, 'frame_%06d.png'))
-        .inputFPS(VIDEO_FPS)
-        .videoCodec('libx264')
-        .outputOptions(['-pix_fmt yuv420p', '-crf 18', '-preset slow'])
-        .fps(VIDEO_FPS)
-        .output(resolvedOutputPath)
-        .on('end', resolve)
-        .on('error', reject)
-        .run();
-    });
+    await encodeVideoWithAudio(
+      path.join(framesDir, 'frame_%06d.png'),
+      soundEvents,
+      totalVideoDuration,
+      resolvedOutputPath
+    );
     console.log(`Done! Video saved to: ${resolvedOutputPath}`);
   } finally {
     if (fs.existsSync(framesDir)) {
@@ -916,7 +1058,9 @@ async function historicalDbGameToVideo(gameIdInput, outputPath) {
         g.id,
         g.total_time_seconds,
         wp.display_name AS white_name,
+        wp.title AS white_title,
         bp.display_name AS black_name,
+        bp.title AS black_title,
         g.metadata->>'whiteRating' AS white_rating,
         g.metadata->>'blackRating' AS black_rating
       FROM games g
@@ -944,6 +1088,8 @@ async function historicalDbGameToVideo(gameIdInput, outputPath) {
     const jsonData = {
       whitePlayer: gameRow.white_name,
       blackPlayer: gameRow.black_name,
+      whiteTitle: gameRow.white_title,
+      blackTitle: gameRow.black_title,
       totalTimeSeconds: gameRow.total_time_seconds,
       whiteRating: gameRow.white_rating,
       blackRating: gameRow.black_rating,
