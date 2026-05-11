@@ -74,8 +74,8 @@ let lastStatusLines = 0; // Track how many lines the last status took
 function updateStatus() {
   const now = Date.now();
 
-  // In verbose mode, only update status every 10 seconds
-  if (VERBOSE && now - lastStatusUpdate < 10000) {
+  // In verbose mode, only update status every 2 seconds
+  if (VERBOSE && now - lastStatusUpdate < 2000) {
     return;
   }
 
@@ -275,5 +275,5 @@ if (VERBOSE) {
     if (activeWorkers.size > 0) {
       updateStatus();
     }
-  }, 15000); // Every 15 seconds
+  }, 2000); // Every 2 seconds for real-time feel
 }
