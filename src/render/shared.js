@@ -3,7 +3,7 @@ const path = require('path');
 const { Chess } = require('chess.js');
 const { loadImage } = require('@napi-rs/canvas');
 
-const SQUARE_SIZE = 80;
+const SQUARE_SIZE = 100; // Increased for better piece rendering quality
 const BOARD_SIZE = SQUARE_SIZE * 8;
 const PADDING_X = 40;
 const PLAYER_NAME_BAR_HEIGHT = 24;
@@ -59,6 +59,19 @@ const STAUNTON_PIECE_URLS = {
 
 const PIECE_IMAGES = new Map();
 let pieceSetLoaded = false;
+
+function loadConfig() {
+  try {
+    const configPath = path.join(__dirname, '..', '..', 'config.json');
+    if (fs.existsSync(configPath)) {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      return JSON.parse(configData);
+    }
+  } catch (err) {
+    console.warn('Could not load config.json, using defaults:', err.message);
+  }
+  return { pieceSet: 'cburnett' };
+}
 
 function squareToPixel(square) {
   const col = square.charCodeAt(0) - 97;
@@ -130,9 +143,21 @@ function getSoundForMove(move, isCheck) {
 async function preloadStauntonPieces() {
   if (pieceSetLoaded) return;
 
-  await Promise.all(Object.entries(STAUNTON_PIECE_URLS).map(async ([key, url]) => {
+  const config = loadConfig();
+  const pieceSet = config.pieceSet || 'cburnett';
+  const piecesDir = path.join(__dirname, '..', '..', 'assets', 'pieces', pieceSet);
+
+  await Promise.all(Object.keys(STAUNTON_PIECE_URLS).map(async (key) => {
     try {
-      PIECE_IMAGES.set(key, await loadImage(url));
+      // Try local file first
+      const localPath = path.join(piecesDir, `${key}.svg`);
+      if (fs.existsSync(localPath)) {
+        PIECE_IMAGES.set(key, await loadImage(localPath));
+      } else {
+        // Fall back to remote URL
+        const remoteUrl = STAUNTON_PIECE_URLS[key];
+        PIECE_IMAGES.set(key, await loadImage(remoteUrl));
+      }
     } catch (err) {
       console.warn(`Could not load piece image ${key}: ${err.message}`);
       PIECE_IMAGES.set(key, null);

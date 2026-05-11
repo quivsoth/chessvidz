@@ -68,8 +68,15 @@ function drawPieceAt(ctx, piece, px, py, alpha = 1) {
     const size = Math.round(SQUARE_SIZE * 0.86);
     const x = Math.round(px - size / 2);
     const y = Math.round(py - size / 2);
+
+    // Use high-quality image smoothing for better piece rendering
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Draw shadow
     ctx.globalAlpha = alpha * 0.22;
     ctx.drawImage(sprite, x + 2, y + 3, size, size);
+    // Draw piece
     ctx.globalAlpha = alpha;
     ctx.drawImage(sprite, x, y, size, size);
     ctx.globalAlpha = 1;
