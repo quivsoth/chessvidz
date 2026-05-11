@@ -102,7 +102,7 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     boardStates.push(replay.board());
   }
 
-  const framesDir = path.join(__dirname, '..', '..', 'frames');
+  const framesDir = path.join(__dirname, '..', '..', `frames-${process.pid}`);
   if (fs.existsSync(framesDir)) {
     try {
       const files = fs.readdirSync(framesDir);
@@ -267,7 +267,7 @@ async function renderGame(parsedGame, outputPath) {
     boardStates.push(replay.board());
   }
 
-  const framesDir = path.join(__dirname, '..', '..', 'frames');
+  const framesDir = path.join(__dirname, '..', '..', `frames-${process.pid}`);
   if (fs.existsSync(framesDir)) {
     try {
       const files = fs.readdirSync(framesDir);
