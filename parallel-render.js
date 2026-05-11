@@ -81,9 +81,21 @@ function updateStatus() {
 
   lastStatusUpdate = now;
   const elapsed = now - results.startTime;
-  const rate = results.completed / (elapsed / 1000);
   const remaining = results.total - results.completed - results.failed;
-  const eta = remaining > 0 && rate > 0 ? formatTime((remaining / rate) * 1000) : 'calculating...';
+
+  let eta;
+  if (remaining === 0) {
+    eta = '0s';
+  } else if (results.completed > 0) {
+    // Calculate based on actual completion rate
+    const rate = results.completed / (elapsed / 1000);
+    eta = formatTime((remaining / rate) * 1000);
+  } else {
+    // Estimate: assume ~10 min per game, divide by number of workers
+    const estimatedSecondsPerGame = 600; // 10 minutes
+    const parallelTime = (results.total * estimatedSecondsPerGame) / workers;
+    eta = formatTime(parallelTime * 1000) + ' (est)';
+  }
 
   if (!VERBOSE) {
     // Compact single-line status
