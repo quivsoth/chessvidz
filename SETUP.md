@@ -72,13 +72,31 @@ npm run render:parallel
 - Uses 75% of available cores
 - **Much faster** for batch rendering
 
-**Example output:**
+**Verbose mode (detailed output):**
+```bash
+node parallel-render.js --verbose
+# or
+node parallel-render.js -v
+```
+
+**Example output (normal):**
 ```
 🚀 Parallel Renderer (48 workers on 64 cores)
-
 Found 29 games to render
 
 ✓ 15  ✗ 0  ⚙ 48/48  ⏱ 5m 23s  ETA: 2m 15s  (15/29)
+```
+
+**Example output (verbose):**
+```
+🚀 Parallel Renderer (48 workers on 64 cores)
+Found 29 games to render
+
+▶️  Starting: game-1 (28 remaining in queue)
+▶️  Starting: game-2 (27 remaining in queue)
+✅ [game-1] Complete in 9m 23s
+▶️  Starting: game-3 (26 remaining in queue)
+✓ 1  ✗ 0  ⚙ Active[47]: game-2, game-3, game-4, game-5, game-6 +42 more  ⏱ 9m 25s  ETA: 4m 12s
 ```
 
 Legend:
@@ -87,6 +105,8 @@ Legend:
 - `⚙` Active workers
 - `⏱` Elapsed time
 - `ETA` Estimated time remaining
+- `▶️` Game starting (verbose only)
+- `✅` Game completed (verbose only)
 
 ### Custom Worker Count
 ```bash

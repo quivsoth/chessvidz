@@ -12,7 +12,12 @@ const outputDir = path.join(__dirname, 'output');
 const MAX_WORKERS = Math.max(1, Math.floor(os.cpus().length * 0.75));
 const workers = parseInt(process.argv[2]) || MAX_WORKERS;
 
-console.log(`\n🚀 Parallel Renderer (${workers} workers on ${os.cpus().length} cores)\n`);
+// Check for verbose flag
+const VERBOSE = process.argv.includes('--verbose') || process.argv.includes('-v');
+
+console.log(`\n🚀 Parallel Renderer (${workers} workers on ${os.cpus().length} cores)`);
+if (VERBOSE) console.log('   Verbose mode enabled\n');
+else console.log('   Tip: Use --verbose for detailed output\n');
 
 if (!fs.existsSync(inputDir)) {
   console.error('Error: input/ directory not found');
@@ -25,7 +30,8 @@ const jsonFiles = fs.readdirSync(inputDir)
     input: path.join(inputDir, f),
     output: path.basename(f, '.json') + '.mp4',
     name: path.basename(f, '.json')
-  }));
+  }))
+  .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
 if (jsonFiles.length === 0) {
   console.error('No .json files found in input/ directory');
@@ -38,6 +44,8 @@ console.log(`Found ${jsonFiles.length} games to render\n`);
 
 const queue = [...jsonFiles];
 const activeWorkers = new Map();
+const completedGames = [];
+const failedGames = [];
 const results = {
   completed: 0,
   failed: 0,
@@ -65,11 +73,29 @@ function updateStatus() {
   const remaining = results.total - results.completed - results.failed;
   const eta = remaining > 0 && rate > 0 ? formatTime((remaining / rate) * 1000) : 'calculating...';
 
-  process.stdout.write('\r\x1b[K'); // Clear line
-  process.stdout.write(
-    `✓ ${results.completed}  ✗ ${results.failed}  ⚙ ${activeWorkers.size}/${workers}  ` +
-    `⏱ ${formatTime(elapsed)}  ETA: ${eta}  (${results.completed + results.failed}/${results.total})`
-  );
+  if (!VERBOSE) {
+    // Compact single-line status
+    process.stdout.write('\r\x1b[K'); // Clear line
+    process.stdout.write(
+      `✓ ${results.completed}  ✗ ${results.failed}  ⚙ ${activeWorkers.size}/${workers}  ` +
+      `⏱ ${formatTime(elapsed)}  ETA: ${eta}  (${results.completed + results.failed}/${results.total})`
+    );
+  } else {
+    // Verbose mode - show active workers
+    process.stdout.write('\r\x1b[K');
+    const activeList = Array.from(activeWorkers.values())
+      .map(w => w.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .slice(0, 5)
+      .join(', ');
+    const more = activeWorkers.size > 5 ? ` +${activeWorkers.size - 5} more` : '';
+
+    process.stdout.write(
+      `✓ ${results.completed}  ✗ ${results.failed}  ` +
+      `⚙ Active[${activeWorkers.size}]: ${activeList}${more}  ` +
+      `⏱ ${formatTime(elapsed)}  ETA: ${eta}`
+    );
+  }
 }
 
 function renderNext() {
@@ -77,18 +103,36 @@ function renderNext() {
     if (activeWorkers.size === 0) {
       // All done
       const elapsed = Date.now() - results.startTime;
-      console.log('\n\n' + '='.repeat(60));
+      console.log('\n\n' + '='.repeat(70));
       console.log(`✅ Complete! Rendered ${results.completed}/${results.total} games in ${formatTime(elapsed)}`);
+
       if (results.failed > 0) {
-        console.log(`⚠️  ${results.failed} failed`);
+        console.log(`\n⚠️  ${results.failed} failed:`);
+        failedGames.forEach(({ name, error }) => {
+          console.log(`   ❌ ${name}: ${error}`);
+        });
       }
-      console.log('='.repeat(60) + '\n');
+
+      if (VERBOSE && completedGames.length > 0) {
+        const avgTime = completedGames.reduce((sum, g) => sum + g.duration, 0) / completedGames.length;
+        console.log(`\n📊 Statistics:`);
+        console.log(`   Average render time: ${formatTime(avgTime)}`);
+        console.log(`   Fastest: ${completedGames[0].name} (${formatTime(completedGames[0].duration)})`);
+        console.log(`   Slowest: ${completedGames[completedGames.length - 1].name} (${formatTime(completedGames[completedGames.length - 1].duration)})`);
+      }
+
+      console.log('='.repeat(70) + '\n');
       process.exit(results.failed > 0 ? 1 : 0);
     }
     return;
   }
 
   const job = queue.shift();
+
+  if (VERBOSE) {
+    console.log(`\n▶️  Starting: ${job.name} (${queue.length} remaining in queue)`);
+  }
+
   const child = fork(path.join(__dirname, 'index.js'), [
     '--payload',
     job.input,
@@ -97,16 +141,34 @@ function renderNext() {
     stdio: 'ignore' // Suppress child output
   });
 
-  activeWorkers.set(child.pid, { name: job.name, startTime: Date.now() });
+  const workerData = {
+    name: job.name,
+    startTime: Date.now()
+  };
+
+  activeWorkers.set(child.pid, workerData);
 
   child.on('exit', (code) => {
+    const worker = activeWorkers.get(child.pid);
     activeWorkers.delete(child.pid);
+
+    const duration = Date.now() - worker.startTime;
 
     if (code === 0) {
       results.completed++;
+      completedGames.push({ name: job.name, duration });
+      completedGames.sort((a, b) => a.duration - b.duration);
+
+      if (VERBOSE) {
+        console.log(`✅ [${job.name}] Complete in ${formatTime(duration)}`);
+      }
     } else {
       results.failed++;
-      console.log(`\n❌ [${job.name}] Failed (exit code ${code})`);
+      const errorMsg = `exit code ${code}`;
+      failedGames.push({ name: job.name, error: errorMsg });
+
+      // Always show failures
+      console.log(`\n❌ [${job.name}] Failed: ${errorMsg}`);
     }
 
     updateStatus();
@@ -116,7 +178,11 @@ function renderNext() {
   child.on('error', (err) => {
     activeWorkers.delete(child.pid);
     results.failed++;
+    failedGames.push({ name: job.name, error: err.message });
+
+    // Always show errors
     console.log(`\n❌ [${job.name}] Error: ${err.message}`);
+
     updateStatus();
     renderNext();
   });
@@ -125,6 +191,7 @@ function renderNext() {
 }
 
 // Start workers
+console.log('Starting workers...\n');
 for (let i = 0; i < Math.min(workers, jsonFiles.length); i++) {
   renderNext();
 }
