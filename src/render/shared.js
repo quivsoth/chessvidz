@@ -5,16 +5,25 @@ const { loadImage } = require('@napi-rs/canvas');
 
 const SQUARE_SIZE = 80;
 const BOARD_SIZE = SQUARE_SIZE * 8;
-const PADDING = 40;
+const PADDING_X = 40;
+const PLAYER_NAME_BAR_HEIGHT = 24;
+const BOARD_FRAME_OUTER_PADDING = 8;
+const TOP_GAP = 4;
+const BOTTOM_GAP = 4;
+const PADDING_Y = PLAYER_NAME_BAR_HEIGHT + TOP_GAP + BOARD_FRAME_OUTER_PADDING;
+const PADDING = PADDING_X;
 const EVAL_BAR_WIDTH = 40;
-const CANVAS_SIZE = BOARD_SIZE + PADDING * 2 + EVAL_BAR_WIDTH;
+const EVAL_BAR_GAP = 8;
+const rawWidth = PADDING_X + BOARD_SIZE + BOARD_FRAME_OUTER_PADDING + EVAL_BAR_GAP + EVAL_BAR_WIDTH;
+const rawHeight = PLAYER_NAME_BAR_HEIGHT + TOP_GAP + BOARD_FRAME_OUTER_PADDING + BOARD_SIZE + BOARD_FRAME_OUTER_PADDING + BOTTOM_GAP + PLAYER_NAME_BAR_HEIGHT;
+const CANVAS_WIDTH = rawWidth % 2 === 0 ? rawWidth : rawWidth + 1;
+const CANVAS_HEIGHT = rawHeight % 2 === 0 ? rawHeight : rawHeight + 1;
+const CANVAS_SIZE = CANVAS_WIDTH;
 
 const VIDEO_FPS = 24;
 const TWEEN_FRAMES = 16;
 const HOLD_FRAMES = 18;
 const INTRO_FRAMES = 36;
-const PLAYER_NAME_BAR_HEIGHT = Math.round(PADDING * 0.6);
-const BOARD_FRAME_OUTER_PADDING = Math.round(PADDING * 0.22);
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
 
 const COLORS = {
@@ -55,8 +64,8 @@ function squareToPixel(square) {
   const col = square.charCodeAt(0) - 97;
   const row = 8 - parseInt(square[1], 10);
   return {
-    x: PADDING + col * SQUARE_SIZE + SQUARE_SIZE / 2,
-    y: PADDING + row * SQUARE_SIZE + SQUARE_SIZE / 2,
+    x: PADDING_X + col * SQUARE_SIZE + SQUARE_SIZE / 2,
+    y: PADDING_Y + row * SQUARE_SIZE + SQUARE_SIZE / 2,
   };
 }
 
@@ -195,11 +204,16 @@ function buildHistoryFromInput(inputText) {
 }
 
 function extractTitleAndName(name) {
-  const match = String(name || '').match(/^(GM|IM|FM|WGM|WIM|WFM|NM|CM|WCM)\s+(.+)$/);
-  return {
-    title: match ? match[1] : null,
-    displayName: match ? match[2] : String(name || ''),
-  };
+  const nameStr = String(name || '');
+  const matchWithSpace = nameStr.match(/^(GM|IM|FM|WGM|WIM|WFM|NM|CM|WCM)\s+(.+)$/);
+  if (matchWithSpace) {
+    return { title: matchWithSpace[1], displayName: matchWithSpace[2] };
+  }
+  const matchNoSpace = nameStr.match(/^(GM|IM|FM|WGM|WIM|WFM|NM|CM|WCM)(.+)$/);
+  if (matchNoSpace) {
+    return { title: matchNoSpace[1], displayName: matchNoSpace[2] };
+  }
+  return { title: null, displayName: nameStr };
 }
 
 function parseHistoricalGame(jsonData, sourceName) {
@@ -322,17 +336,24 @@ module.exports = {
   ASSETS_DIR,
   BOARD_FRAME_OUTER_PADDING,
   BOARD_SIZE,
+  BOTTOM_GAP,
+  CANVAS_HEIGHT,
   CANVAS_SIZE,
+  CANVAS_WIDTH,
   COLORS,
+  EVAL_BAR_GAP,
   EVAL_BAR_WIDTH,
   HOLD_FRAMES,
   INTRO_FRAMES,
+  PADDING,
+  PADDING_X,
+  PADDING_Y,
   PIECE_IMAGES,
   PIECE_SYMBOLS,
   PLAYER_NAME_BAR_HEIGHT,
-  PADDING,
   SQUARE_SIZE,
   STAUNTON_PIECE_URLS,
+  TOP_GAP,
   TWEEN_FRAMES,
   VIDEO_FPS,
   buildHistoryFromInput,

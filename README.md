@@ -22,6 +22,16 @@ node index.js --legacy "e2e4 e7e5 g1f3" output.mp4
 node index.js --payload /path/to/game-payload.json output.mp4
 ```
 
+### Batch rendering
+
+Place JSON payload files in the `input/` folder, then:
+
+```bash
+npm run render
+```
+
+This processes all `.json` files in `input/` and saves videos to `output/`.
+
 ## Payload shape
 
 The payload is a plain JSON object with these fields:

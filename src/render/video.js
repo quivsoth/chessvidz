@@ -103,8 +103,20 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
   }
 
   const framesDir = path.join(__dirname, '..', '..', 'frames');
-  if (fs.existsSync(framesDir)) fs.rmSync(framesDir, { recursive: true, force: true });
-  fs.mkdirSync(framesDir);
+  if (fs.existsSync(framesDir)) {
+    try {
+      const files = fs.readdirSync(framesDir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(framesDir, file));
+      }
+      fs.rmdirSync(framesDir);
+    } catch (err) {
+      // Directory might be in use, continue anyway
+    }
+  }
+  if (!fs.existsSync(framesDir)) {
+    fs.mkdirSync(framesDir);
+  }
 
   const outputDir = path.join(__dirname, '..', '..', 'output');
   fs.mkdirSync(outputDir, { recursive: true });
@@ -152,6 +164,7 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
       chess.move(history[j].san);
     }
     const isCheck = chess.inCheck();
+    const isCheckmate = chess.isCheckmate();
 
     const tweenDuration = tweenFrames / VIDEO_FPS;
     const videoTimestamp = introSeconds + (elapsed - moveSeconds) + tweenDuration;
@@ -194,14 +207,14 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
         blackRating: null,
         totalTimeSeconds,
         elapsedSeconds: elapsed + holdElapsed,
-        whiteRemainingSeconds: nextPlayerIsWhite
-          ? Math.max(0, whiteRemainingSeconds - holdElapsed)
-          : whiteRemainingSeconds,
-        blackRemainingSeconds: nextPlayerIsBlack
-          ? Math.max(0, blackRemainingSeconds - holdElapsed)
-          : blackRemainingSeconds,
-        whiteToMove: nextPlayerIsWhite,
-        blackToMove: nextPlayerIsBlack,
+        whiteRemainingSeconds: isCheckmate
+          ? whiteRemainingSeconds
+          : (nextPlayerIsWhite ? Math.max(0, whiteRemainingSeconds - holdElapsed) : whiteRemainingSeconds),
+        blackRemainingSeconds: isCheckmate
+          ? blackRemainingSeconds
+          : (nextPlayerIsBlack ? Math.max(0, blackRemainingSeconds - holdElapsed) : blackRemainingSeconds),
+        whiteToMove: isCheckmate ? false : nextPlayerIsWhite,
+        blackToMove: isCheckmate ? false : nextPlayerIsBlack,
       };
 
       saveFrame(renderStaticFrame(boardStates[i + 1], move, i + 1, move.san, totalMoves));
@@ -226,7 +239,15 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     console.log(`Done! Video saved to: ${resolvedOutputPath}`);
   } finally {
     if (fs.existsSync(framesDir)) {
-      fs.rmSync(framesDir, { recursive: true, force: true });
+      try {
+        const files = fs.readdirSync(framesDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(framesDir, file));
+        }
+        fs.rmdirSync(framesDir);
+      } catch (err) {
+        console.warn(`Warning: Could not clean up frames directory: ${err.message}`);
+      }
     }
   }
 }
@@ -247,8 +268,20 @@ async function renderGame(parsedGame, outputPath) {
   }
 
   const framesDir = path.join(__dirname, '..', '..', 'frames');
-  if (fs.existsSync(framesDir)) fs.rmSync(framesDir, { recursive: true, force: true });
-  fs.mkdirSync(framesDir);
+  if (fs.existsSync(framesDir)) {
+    try {
+      const files = fs.readdirSync(framesDir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(framesDir, file));
+      }
+      fs.rmdirSync(framesDir);
+    } catch (err) {
+      // Directory might be in use, continue anyway
+    }
+  }
+  if (!fs.existsSync(framesDir)) {
+    fs.mkdirSync(framesDir);
+  }
 
   const outputDir = path.join(__dirname, '..', '..', 'output');
   fs.mkdirSync(outputDir, { recursive: true });
@@ -321,6 +354,7 @@ async function renderGame(parsedGame, outputPath) {
       chess.move(history[j].san);
     }
     const isCheck = chess.inCheck();
+    const isCheckmate = chess.isCheckmate();
 
     const tweenDuration = tweenFrames / VIDEO_FPS;
     const videoTimestamp = introSeconds + (elapsed - moveSeconds) + tweenDuration;
@@ -373,14 +407,14 @@ async function renderGame(parsedGame, outputPath) {
         blackRating: gameMeta.blackRating,
         totalTimeSeconds: gameMeta.totalTimeSeconds,
         elapsedSeconds: elapsed + holdElapsed,
-        whiteRemainingSeconds: nextPlayerIsWhite
-          ? Math.max(0, whiteRemainingSeconds - holdElapsed)
-          : whiteRemainingSeconds,
-        blackRemainingSeconds: nextPlayerIsBlack
-          ? Math.max(0, blackRemainingSeconds - holdElapsed)
-          : blackRemainingSeconds,
-        whiteToMove: nextPlayerIsWhite,
-        blackToMove: nextPlayerIsBlack,
+        whiteRemainingSeconds: isCheckmate
+          ? whiteRemainingSeconds
+          : (nextPlayerIsWhite ? Math.max(0, whiteRemainingSeconds - holdElapsed) : whiteRemainingSeconds),
+        blackRemainingSeconds: isCheckmate
+          ? blackRemainingSeconds
+          : (nextPlayerIsBlack ? Math.max(0, blackRemainingSeconds - holdElapsed) : blackRemainingSeconds),
+        whiteToMove: isCheckmate ? false : nextPlayerIsWhite,
+        blackToMove: isCheckmate ? false : nextPlayerIsBlack,
         evalCp: moveEval,
       };
 
@@ -406,7 +440,15 @@ async function renderGame(parsedGame, outputPath) {
     console.log(`Done! Video saved to: ${resolvedOutputPath}`);
   } finally {
     if (fs.existsSync(framesDir)) {
-      fs.rmSync(framesDir, { recursive: true, force: true });
+      try {
+        const files = fs.readdirSync(framesDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(framesDir, file));
+        }
+        fs.rmdirSync(framesDir);
+      } catch (err) {
+        console.warn(`Warning: Could not clean up frames directory: ${err.message}`);
+      }
     }
   }
 }

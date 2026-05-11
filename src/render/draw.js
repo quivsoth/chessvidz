@@ -3,14 +3,20 @@ const { createCanvas } = require('@napi-rs/canvas');
 const {
   BOARD_FRAME_OUTER_PADDING,
   BOARD_SIZE,
-  CANVAS_SIZE,
+  BOTTOM_GAP,
+  CANVAS_HEIGHT,
+  CANVAS_WIDTH,
   COLORS,
+  EVAL_BAR_GAP,
   EVAL_BAR_WIDTH,
   PADDING,
+  PADDING_X,
+  PADDING_Y,
   PLAYER_NAME_BAR_HEIGHT,
   PIECE_IMAGES,
   PIECE_SYMBOLS,
   SQUARE_SIZE,
+  TOP_GAP,
   colRowFromSquare,
   easeInOut,
   extractTitleAndName,
@@ -21,8 +27,8 @@ function drawBoard(ctx, lastMove) {
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const isLight = (r + c) % 2 === 0;
-      const x = PADDING + c * SQUARE_SIZE;
-      const y = PADDING + r * SQUARE_SIZE;
+      const x = PADDING_X + c * SQUARE_SIZE;
+      const y = PADDING_Y + r * SQUARE_SIZE;
 
       ctx.fillStyle = isLight ? COLORS.light : COLORS.dark;
       ctx.fillRect(x, y, SQUARE_SIZE, SQUARE_SIZE);
@@ -42,16 +48,16 @@ function drawBoard(ctx, lastMove) {
 function drawCoords(ctx) {
   const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
   const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
-  const fileY = PADDING + BOARD_SIZE - Math.round(SQUARE_SIZE * 0.12);
+  const fileY = PADDING_Y + BOARD_SIZE - Math.round(SQUARE_SIZE * 0.12);
   ctx.font = `bold ${Math.round(SQUARE_SIZE * 0.2)}px serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = COLORS.coordText;
   files.forEach((f, i) => {
-    ctx.fillText(f, PADDING + i * SQUARE_SIZE + SQUARE_SIZE / 2, fileY);
+    ctx.fillText(f, PADDING_X + i * SQUARE_SIZE + SQUARE_SIZE / 2, fileY);
   });
   ranks.forEach((r, i) => {
-    ctx.fillText(r, PADDING * 0.5, PADDING + i * SQUARE_SIZE + SQUARE_SIZE / 2);
+    ctx.fillText(r, PADDING_X * 0.5, PADDING_Y + i * SQUARE_SIZE + SQUARE_SIZE / 2);
   });
 }
 
@@ -90,8 +96,8 @@ function drawStaticPieces(ctx, board, skipSquares = new Set()) {
       if (!piece) return;
       const sq = String.fromCharCode(97 + c) + String(8 - r);
       if (skipSquares.has(sq)) return;
-      const px = PADDING + c * SQUARE_SIZE + SQUARE_SIZE / 2;
-      const py = PADDING + r * SQUARE_SIZE + SQUARE_SIZE / 2;
+      const px = PADDING_X + c * SQUARE_SIZE + SQUARE_SIZE / 2;
+      const py = PADDING_Y + r * SQUARE_SIZE + SQUARE_SIZE / 2;
       drawPieceAt(ctx, piece, px, py);
     });
   });
@@ -104,13 +110,11 @@ function drawMoveLabel() {
 function drawPlayerNameBars(ctx, meta) {
   if (!meta) return;
 
-  const topMargin = 6;
-  const bottomMargin = 6;
   const barX = 0;
-  const barW = CANVAS_SIZE;
+  const barW = CANVAS_WIDTH;
   const barHeight = PLAYER_NAME_BAR_HEIGHT;
-  const topBarY = topMargin;
-  const bottomBarY = CANVAS_SIZE - barHeight - bottomMargin;
+  const topBarY = 0;
+  const bottomBarY = CANVAS_HEIGHT - PLAYER_NAME_BAR_HEIGHT;
 
   function drawSingleBar(y, name, title, rating, color, timeRemaining, isActive) {
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
@@ -139,7 +143,7 @@ function drawPlayerNameBars(ctx, meta) {
       WCM: '#ffffff',
     };
 
-    const x = PADDING + 10;
+    const x = PADDING_X + 10;
     const centerY = y + barHeight / 2;
 
     if (effectiveTitle) {
@@ -197,9 +201,9 @@ function drawCornerClocks() {
 function drawEvalBar(ctx, evalCp) {
   if (evalCp === null || evalCp === undefined) return;
 
-  const barX = PADDING + BOARD_SIZE;
-  const barY = PADDING;
-  const barHeight = BOARD_SIZE;
+  const barX = PADDING_X + BOARD_SIZE + EVAL_BAR_GAP;
+  const barY = PLAYER_NAME_BAR_HEIGHT;
+  const barHeight = CANVAS_HEIGHT - (PLAYER_NAME_BAR_HEIGHT * 2);
   const barWidth = EVAL_BAR_WIDTH;
 
   ctx.fillStyle = '#2d2d2d';
@@ -231,16 +235,16 @@ function drawEvalBar(ctx, evalCp) {
 
 function drawBackground(ctx) {
   const outerPadding = BOARD_FRAME_OUTER_PADDING;
-  const frameX = PADDING - outerPadding;
-  const frameY = PADDING - outerPadding;
+  const frameX = PADDING_X - outerPadding;
+  const frameY = PADDING_Y - outerPadding;
   const frameW = BOARD_SIZE + outerPadding * 2;
   const frameH = BOARD_SIZE + outerPadding * 2;
 
-  const bgGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_SIZE);
+  const bgGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
   bgGradient.addColorStop(0, '#281912');
   bgGradient.addColorStop(1, COLORS.background);
   ctx.fillStyle = bgGradient;
-  ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
   const frameGradient = ctx.createLinearGradient(frameX, frameY, frameX + frameW, frameY + frameH);
   frameGradient.addColorStop(0, '#a97a49');
@@ -255,11 +259,11 @@ function drawBackground(ctx) {
 
   ctx.strokeStyle = '#d1ae7e';
   ctx.lineWidth = 2;
-  ctx.strokeRect(PADDING - 2, PADDING - 2, BOARD_SIZE + 4, BOARD_SIZE + 4);
+  ctx.strokeRect(PADDING_X - 2, PADDING_Y - 2, BOARD_SIZE + 4, BOARD_SIZE + 4);
 }
 
 function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves, customMeta = null) {
-  const canvas = createCanvas(CANVAS_SIZE, CANVAS_SIZE);
+  const canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
   const ctx = canvas.getContext('2d');
   drawBackground(ctx);
   drawPlayerNameBars(ctx, customMeta || drawMoveLabel.meta);
@@ -273,7 +277,7 @@ function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves, cu
 }
 
 function renderTweenFrame(boardBefore, move, t, moveNumber, totalMoves) {
-  const canvas = createCanvas(CANVAS_SIZE, CANVAS_SIZE);
+  const canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
   const ctx = canvas.getContext('2d');
   const ease = easeInOut(t);
 
