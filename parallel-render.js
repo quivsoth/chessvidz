@@ -69,6 +69,7 @@ function formatTime(ms) {
 }
 
 let lastStatusUpdate = 0;
+let lastStatusLines = 0; // Track how many lines the last status took
 
 function updateStatus(force = false) {
   const now = Date.now();
@@ -92,22 +93,40 @@ function updateStatus(force = false) {
       `⏱ ${formatTime(elapsed)}  ETA: ${eta}  (${results.completed + results.failed}/${results.total})`
     );
   } else {
-    // Verbose mode - show workers with their current progress
-    console.log(`\n${'─'.repeat(80)}`);
-    console.log(`📊 Progress: ✓ ${results.completed}  ✗ ${results.failed}  ⏱ ${formatTime(elapsed)}  ETA: ${eta}`);
+    // Verbose mode - update in place
+    const lines = [];
+    lines.push(`${'─'.repeat(80)}`);
+    lines.push(`📊 Progress: ✓ ${results.completed}  ✗ ${results.failed}  ⏱ ${formatTime(elapsed)}  ETA: ${eta}`);
 
     if (activeWorkers.size > 0) {
-      console.log(`\n⚙  Active Workers (${activeWorkers.size}):`);
+      lines.push(``);
+      lines.push(`⚙  Active Workers (${activeWorkers.size}):`);
       const sortedWorkers = Array.from(activeWorkers.entries())
         .sort((a, b) => a[1].name.localeCompare(b[1].name, undefined, { numeric: true }));
 
       sortedWorkers.forEach(([pid, worker]) => {
         const progress = workerProgress.get(pid) || 'Starting...';
         const elapsed = Date.now() - worker.startTime;
-        console.log(`   ${worker.name.padEnd(12)} - ${progress.padEnd(20)} (${formatTime(elapsed)})`);
+        lines.push(`   ${worker.name.padEnd(12)} - ${progress.padEnd(20)} (${formatTime(elapsed)})`);
       });
     }
-    console.log(`${'─'.repeat(80)}\n`);
+    lines.push(`${'─'.repeat(80)}`);
+
+    // Clear previous status and draw new one
+    if (force) {
+      // On completion/error, add newline before next event
+      process.stdout.write('\n' + lines.join('\n') + '\n\n');
+      lastStatusLines = 0;
+    } else {
+      // Regular update - overwrite in place
+      // Move cursor up to overwrite previous status
+      if (lastStatusLines > 0) {
+        process.stdout.write(`\x1b[${lastStatusLines}A`); // Move cursor up
+        process.stdout.write('\x1b[J'); // Clear from cursor down
+      }
+      process.stdout.write(lines.join('\n') + '\n');
+      lastStatusLines = lines.length;
+    }
   }
 }
 
