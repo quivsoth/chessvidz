@@ -8,6 +8,19 @@ This repo takes either:
 
 and turns it into an MP4.
 
+## Quick Start
+
+**New machine setup:**
+```bash
+git clone https://github.com/quivsoth/chessvidz
+cd chessvidz
+npm install
+# Add .json files to input/
+npm run render:parallel
+```
+
+**See [SETUP.md](SETUP.md) for detailed setup instructions, performance estimates, and troubleshooting.**
+
 ## Inputs
 
 ### Legacy input
