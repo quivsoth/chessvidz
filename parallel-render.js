@@ -147,7 +147,7 @@ function renderNext() {
     job.input,
     job.output
   ], {
-    stdio: VERBOSE ? ['ignore', 'pipe', 'pipe'] : 'ignore'
+    stdio: VERBOSE ? ['ignore', 'pipe', 'pipe', 'ipc'] : 'ignore'
   });
 
   if (VERBOSE) {
