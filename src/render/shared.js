@@ -147,17 +147,27 @@ async function preloadStauntonPieces() {
   const pieceSet = config.pieceSet || 'cburnett';
   const piecesDir = path.join(__dirname, '..', '..', 'assets', 'pieces', pieceSet);
 
+  // Pre-render pieces at 2x size for crisp rendering when scaled
+  const targetSize = Math.round(SQUARE_SIZE * 0.86 * 2); // 172px at 2x
+
   await Promise.all(Object.keys(STAUNTON_PIECE_URLS).map(async (key) => {
     try {
       // Try local file first
       const localPath = path.join(piecesDir, `${key}.svg`);
-      if (fs.existsSync(localPath)) {
-        PIECE_IMAGES.set(key, await loadImage(localPath));
-      } else {
-        // Fall back to remote URL
-        const remoteUrl = STAUNTON_PIECE_URLS[key];
-        PIECE_IMAGES.set(key, await loadImage(remoteUrl));
-      }
+      const sourcePath = fs.existsSync(localPath) ? localPath : STAUNTON_PIECE_URLS[key];
+
+      // Load SVG
+      const svgImage = await loadImage(sourcePath);
+
+      // Pre-render at target size to avoid blurry upscaling
+      const { createCanvas } = require('@napi-rs/canvas');
+      const tempCanvas = createCanvas(targetSize, targetSize);
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.imageSmoothingEnabled = true;
+      tempCtx.imageSmoothingQuality = 'high';
+      tempCtx.drawImage(svgImage, 0, 0, targetSize, targetSize);
+
+      PIECE_IMAGES.set(key, tempCanvas);
     } catch (err) {
       console.warn(`Could not load piece image ${key}: ${err.message}`);
       PIECE_IMAGES.set(key, null);

@@ -69,7 +69,7 @@ function drawPieceAt(ctx, piece, px, py, alpha = 1) {
     const x = Math.round(px - size / 2);
     const y = Math.round(py - size / 2);
 
-    // Use high-quality image smoothing for better piece rendering
+    // Pieces are pre-rendered at 2x, downscale for crisp rendering
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
