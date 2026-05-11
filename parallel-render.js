@@ -71,11 +71,11 @@ function formatTime(ms) {
 let lastStatusUpdate = 0;
 let lastStatusLines = 0; // Track how many lines the last status took
 
-function updateStatus(force = false) {
+function updateStatus() {
   const now = Date.now();
 
-  // In verbose mode, only update status every 10 seconds unless forced
-  if (VERBOSE && !force && now - lastStatusUpdate < 10000) {
+  // In verbose mode, only update status every 10 seconds
+  if (VERBOSE && now - lastStatusUpdate < 10000) {
     return;
   }
 
@@ -96,7 +96,7 @@ function updateStatus(force = false) {
     // Verbose mode - update in place
     const lines = [];
     lines.push(`${'─'.repeat(80)}`);
-    lines.push(`📊 Progress: ✓ ${results.completed}  ✗ ${results.failed}  ⏱ ${formatTime(elapsed)}  ETA: ${eta}`);
+    lines.push(`📊 Progress: ✓ ${results.completed}  ✗ ${results.failed}  🕒 Queued: ${queue.length}  ⏱ ${formatTime(elapsed)}  ETA: ${eta}`);
 
     if (activeWorkers.size > 0) {
       lines.push(``);
@@ -112,21 +112,16 @@ function updateStatus(force = false) {
     }
     lines.push(`${'─'.repeat(80)}`);
 
-    // Clear previous status and draw new one
-    if (force) {
-      // On completion/error, add newline before next event
-      process.stdout.write('\n' + lines.join('\n') + '\n\n');
-      lastStatusLines = 0;
-    } else {
-      // Regular update - overwrite in place
-      // Move cursor up to overwrite previous status
-      if (lastStatusLines > 0) {
-        process.stdout.write(`\x1b[${lastStatusLines}A`); // Move cursor up
-        process.stdout.write('\x1b[J'); // Clear from cursor down
-      }
-      process.stdout.write(lines.join('\n') + '\n');
-      lastStatusLines = lines.length;
+    // Update in place - move cursor up and redraw
+    if (lastStatusLines > 0) {
+      // Move cursor up by number of lines we drew last time
+      process.stdout.write(`\x1b[${lastStatusLines}A`);
+      // Clear from cursor to end of screen
+      process.stdout.write('\x1b[0J');
     }
+    // Draw the status
+    console.log(lines.join('\n'));
+    lastStatusLines = lines.length + 1; // +1 for the newline after join
   }
 }
 
@@ -161,9 +156,7 @@ function renderNext() {
 
   const job = queue.shift();
 
-  if (VERBOSE) {
-    console.log(`▶️  Starting: ${job.name} (${queue.length} remaining in queue)`);
-  }
+  // Don't spam - status table will show active workers
 
   const child = fork(path.join(__dirname, 'index.js'), [
     '--payload',
@@ -218,6 +211,11 @@ function renderNext() {
       completedGames.sort((a, b) => a.duration - b.duration);
 
       if (VERBOSE) {
+        // Clear current status display before showing completion
+        if (lastStatusLines > 0) {
+          process.stdout.write(`\x1b[${lastStatusLines}A\x1b[0J`);
+          lastStatusLines = 0;
+        }
         console.log(`✅ [${job.name}] Complete in ${formatTime(duration)}`);
       }
     } else {
@@ -226,10 +224,13 @@ function renderNext() {
       failedGames.push({ name: job.name, error: errorMsg });
 
       // Always show failures
-      console.log(`\n❌ [${job.name}] Failed: ${errorMsg}`);
+      if (lastStatusLines > 0) {
+        process.stdout.write(`\x1b[${lastStatusLines}A\x1b[0J`);
+        lastStatusLines = 0;
+      }
+      console.log(`❌ [${job.name}] Failed: ${errorMsg}`);
     }
 
-    updateStatus(true); // Force update on completion
     renderNext();
   });
 
@@ -240,15 +241,18 @@ function renderNext() {
     failedGames.push({ name: job.name, error: err.message });
 
     // Always show errors
-    console.log(`\n❌ [${job.name}] Error: ${err.message}`);
+    if (lastStatusLines > 0) {
+      process.stdout.write(`\x1b[${lastStatusLines}A\x1b[0J`);
+      lastStatusLines = 0;
+    }
+    console.log(`❌ [${job.name}] Error: ${err.message}`);
 
-    updateStatus(true); // Force update on error
     renderNext();
   });
 }
 
 // Start workers
-console.log('Starting workers...\n');
+console.log(`Starting ${Math.min(workers, jsonFiles.length)} workers (${jsonFiles.length} games in queue)...\n`);
 for (let i = 0; i < Math.min(workers, jsonFiles.length); i++) {
   renderNext();
 }
@@ -257,7 +261,7 @@ for (let i = 0; i < Math.min(workers, jsonFiles.length); i++) {
 if (VERBOSE) {
   setInterval(() => {
     if (activeWorkers.size > 0) {
-      updateStatus(true);
+      updateStatus();
     }
   }, 15000); // Every 15 seconds
 }
