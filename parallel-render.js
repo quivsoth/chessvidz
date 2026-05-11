@@ -44,6 +44,7 @@ console.log(`Found ${jsonFiles.length} games to render\n`);
 
 const queue = [...jsonFiles];
 const activeWorkers = new Map();
+const workerProgress = new Map(); // Track what each worker is doing
 const completedGames = [];
 const failedGames = [];
 const results = {
@@ -91,19 +92,22 @@ function updateStatus(force = false) {
       `⏱ ${formatTime(elapsed)}  ETA: ${eta}  (${results.completed + results.failed}/${results.total})`
     );
   } else {
-    // Verbose mode - periodic status summary on new line
-    const activeList = Array.from(activeWorkers.values())
-      .map(w => w.name)
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-      .slice(0, 5)
-      .join(', ');
-    const more = activeWorkers.size > 5 ? ` +${activeWorkers.size - 5} more` : '';
+    // Verbose mode - show workers with their current progress
+    console.log(`\n${'─'.repeat(80)}`);
+    console.log(`📊 Progress: ✓ ${results.completed}  ✗ ${results.failed}  ⏱ ${formatTime(elapsed)}  ETA: ${eta}`);
 
-    console.log(
-      `\n📊 Status: ✓ ${results.completed}  ✗ ${results.failed}  ` +
-      `⚙ Active[${activeWorkers.size}]: ${activeList}${more}  ` +
-      `⏱ ${formatTime(elapsed)}  ETA: ${eta}\n`
-    );
+    if (activeWorkers.size > 0) {
+      console.log(`\n⚙  Active Workers (${activeWorkers.size}):`);
+      const sortedWorkers = Array.from(activeWorkers.entries())
+        .sort((a, b) => a[1].name.localeCompare(b[1].name, undefined, { numeric: true }));
+
+      sortedWorkers.forEach(([pid, worker]) => {
+        const progress = workerProgress.get(pid) || 'Starting...';
+        const elapsed = Date.now() - worker.startTime;
+        console.log(`   ${worker.name.padEnd(12)} - ${progress.padEnd(20)} (${formatTime(elapsed)})`);
+      });
+    }
+    console.log(`${'─'.repeat(80)}\n`);
   }
 }
 
@@ -150,33 +154,29 @@ function renderNext() {
     stdio: VERBOSE ? ['ignore', 'pipe', 'pipe', 'ipc'] : 'ignore'
   });
 
+  // Track worker progress for status display
   if (VERBOSE) {
-    // Stream output with game name prefix - filter to important events only
-    const importantPatterns = [
-      /Loaded historical game/,
-      /All frames rendered/,
-      /Encoding to/,
-      /Done! Video saved/,
-      /Animated move \d+0 \//,  // Every 10th move
-    ];
-
-    const filterOutput = (data) => {
+    child.stdout.on('data', (data) => {
       const text = data.toString();
-      const lines = text.split(/[\r\n]+/).filter(Boolean);
 
-      lines.forEach(line => {
-        const cleanLine = line.replace(/\r/g, '').trim();
-        if (!cleanLine) return;
-
-        // Show important events
-        if (importantPatterns.some(pattern => pattern.test(cleanLine))) {
-          console.log(`   [${job.name}] ${cleanLine}`);
+      // Extract progress info
+      if (text.includes('Loaded historical game')) {
+        const match = text.match(/(\d+) moves found/);
+        if (match) {
+          workerProgress.set(child.pid, `Loading (${match[1]} moves)`);
         }
-      });
-    };
-
-    child.stdout.on('data', filterOutput);
-    child.stderr.on('data', filterOutput);
+      } else if (text.includes('Animated move')) {
+        const match = text.match(/move (\d+) \/ (\d+)/);
+        if (match) {
+          const progress = Math.floor((parseInt(match[1]) / parseInt(match[2])) * 100);
+          workerProgress.set(child.pid, `Animating ${progress}%`);
+        }
+      } else if (text.includes('All frames rendered')) {
+        workerProgress.set(child.pid, 'Rendering frames');
+      } else if (text.includes('Encoding')) {
+        workerProgress.set(child.pid, 'Encoding video');
+      }
+    });
   }
 
   const workerData = {
@@ -189,6 +189,7 @@ function renderNext() {
   child.on('exit', (code) => {
     const worker = activeWorkers.get(child.pid);
     activeWorkers.delete(child.pid);
+    workerProgress.delete(child.pid);
 
     const duration = Date.now() - worker.startTime;
 
@@ -215,6 +216,7 @@ function renderNext() {
 
   child.on('error', (err) => {
     activeWorkers.delete(child.pid);
+    workerProgress.delete(child.pid);
     results.failed++;
     failedGames.push({ name: job.name, error: err.message });
 
@@ -238,5 +240,5 @@ if (VERBOSE) {
     if (activeWorkers.size > 0) {
       updateStatus(true);
     }
-  }, 30000); // Every 30 seconds
+  }, 15000); // Every 15 seconds
 }
