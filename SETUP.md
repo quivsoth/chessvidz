@@ -93,10 +93,21 @@ Found 29 games to render
 Found 29 games to render
 
 ▶️  Starting: game-1 (28 remaining in queue)
+   [game-1] Loaded historical game "db-game-1" — 82 moves found.
 ▶️  Starting: game-2 (27 remaining in queue)
+   [game-2] Loaded historical game "db-game-2" — 45 moves found.
+   [game-1]   Animated move 1 / 82
+   [game-1]   Animated move 2 / 82
+   [game-2]   Animated move 1 / 45
+   [game-1]   Animated move 3 / 82
+   ...
+   [game-1] Encoding to output/game-1.mp4 with 84 sound effects …
+   [game-2]   Animated move 45 / 45
+   [game-1] Done! Video saved to: output/game-1.mp4
 ✅ [game-1] Complete in 9m 23s
 ▶️  Starting: game-3 (26 remaining in queue)
-✓ 1  ✗ 0  ⚙ Active[47]: game-2, game-3, game-4, game-5, game-6 +42 more  ⏱ 9m 25s  ETA: 4m 12s
+
+📊 Status: ✓ 1  ✗ 0  ⚙ Active[47]: game-2, game-3, game-4, game-5, game-6 +42 more  ⏱ 9m 25s  ETA: 4m 12s
 ```
 
 Legend:

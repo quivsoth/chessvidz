@@ -67,8 +67,18 @@ function formatTime(ms) {
   return `${seconds}s`;
 }
 
-function updateStatus() {
-  const elapsed = Date.now() - results.startTime;
+let lastStatusUpdate = 0;
+
+function updateStatus(force = false) {
+  const now = Date.now();
+
+  // In verbose mode, only update status every 10 seconds unless forced
+  if (VERBOSE && !force && now - lastStatusUpdate < 10000) {
+    return;
+  }
+
+  lastStatusUpdate = now;
+  const elapsed = now - results.startTime;
   const rate = results.completed / (elapsed / 1000);
   const remaining = results.total - results.completed - results.failed;
   const eta = remaining > 0 && rate > 0 ? formatTime((remaining / rate) * 1000) : 'calculating...';
@@ -81,8 +91,7 @@ function updateStatus() {
       `⏱ ${formatTime(elapsed)}  ETA: ${eta}  (${results.completed + results.failed}/${results.total})`
     );
   } else {
-    // Verbose mode - show active workers
-    process.stdout.write('\r\x1b[K');
+    // Verbose mode - periodic status summary on new line
     const activeList = Array.from(activeWorkers.values())
       .map(w => w.name)
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -90,10 +99,10 @@ function updateStatus() {
       .join(', ');
     const more = activeWorkers.size > 5 ? ` +${activeWorkers.size - 5} more` : '';
 
-    process.stdout.write(
-      `✓ ${results.completed}  ✗ ${results.failed}  ` +
+    console.log(
+      `\n📊 Status: ✓ ${results.completed}  ✗ ${results.failed}  ` +
       `⚙ Active[${activeWorkers.size}]: ${activeList}${more}  ` +
-      `⏱ ${formatTime(elapsed)}  ETA: ${eta}`
+      `⏱ ${formatTime(elapsed)}  ETA: ${eta}\n`
     );
   }
 }
@@ -130,7 +139,7 @@ function renderNext() {
   const job = queue.shift();
 
   if (VERBOSE) {
-    console.log(`\n▶️  Starting: ${job.name} (${queue.length} remaining in queue)`);
+    console.log(`▶️  Starting: ${job.name} (${queue.length} remaining in queue)`);
   }
 
   const child = fork(path.join(__dirname, 'index.js'), [
@@ -138,8 +147,29 @@ function renderNext() {
     job.input,
     job.output
   ], {
-    stdio: 'ignore' // Suppress child output
+    stdio: VERBOSE ? ['ignore', 'pipe', 'pipe'] : 'ignore'
   });
+
+  if (VERBOSE) {
+    // Stream output with game name prefix
+    child.stdout.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      lines.forEach(line => {
+        if (line.trim()) {
+          console.log(`   [${job.name}] ${line}`);
+        }
+      });
+    });
+
+    child.stderr.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      lines.forEach(line => {
+        if (line.trim()) {
+          console.log(`   [${job.name}] ${line}`);
+        }
+      });
+    });
+  }
 
   const workerData = {
     name: job.name,
@@ -171,7 +201,7 @@ function renderNext() {
       console.log(`\n❌ [${job.name}] Failed: ${errorMsg}`);
     }
 
-    updateStatus();
+    updateStatus(true); // Force update on completion
     renderNext();
   });
 
@@ -183,15 +213,22 @@ function renderNext() {
     // Always show errors
     console.log(`\n❌ [${job.name}] Error: ${err.message}`);
 
-    updateStatus();
+    updateStatus(true); // Force update on error
     renderNext();
   });
-
-  updateStatus();
 }
 
 // Start workers
 console.log('Starting workers...\n');
 for (let i = 0; i < Math.min(workers, jsonFiles.length); i++) {
   renderNext();
+}
+
+// Periodic status updates in verbose mode
+if (VERBOSE) {
+  setInterval(() => {
+    if (activeWorkers.size > 0) {
+      updateStatus(true);
+    }
+  }, 30000); // Every 30 seconds
 }
