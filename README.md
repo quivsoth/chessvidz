@@ -56,6 +56,33 @@ node parallel-render.js 8  # Use 8 workers
 
 This processes all `.json` files in `input/` and saves videos to `output/`.
 
+## Piece Sets
+
+The renderer supports 40+ different chess piece styles from Lichess.
+
+**First-time setup (download all piece sets):**
+```bash
+node download-pieces.js
+```
+
+This downloads all 40 piece sets (~2MB total) to `assets/pieces/`.
+
+**Change piece set:**
+```bash
+node set-pieces.js staunty       # Traditional Staunton
+node set-pieces.js cburnett      # Clean modern (default)
+node set-pieces.js merida        # Tournament style
+node set-pieces.js maestro       # Classic elegant
+node set-pieces.js alpha         # Simple and clean
+```
+
+**See all available sets:**
+```bash
+node set-pieces.js
+```
+
+The piece set is configured in `config.json` and applies to all future renders.
+
 ## Payload shape
 
 The payload is a plain JSON object with these fields:

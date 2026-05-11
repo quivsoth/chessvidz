@@ -102,7 +102,7 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     boardStates.push(replay.board());
   }
 
-  const framesDir = path.join(__dirname, '..', '..', `frames-${process.pid}`);
+  const framesDir = path.join(__dirname, '..', '..', 'frames', `worker-${process.pid}`);
   if (fs.existsSync(framesDir)) {
     try {
       const files = fs.readdirSync(framesDir);
@@ -129,6 +129,11 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     const file = path.join(framesDir, `frame_${String(frameIndex).padStart(6, '0')}.png`);
     fs.writeFileSync(file, buf);
     frameIndex++;
+
+    // Aggressive memory cleanup every 100 frames
+    if (frameIndex % 100 === 0 && global.gc) {
+      global.gc();
+    }
   }
 
   drawMoveLabel.meta = null;
@@ -221,6 +226,16 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     }
 
     process.stdout.write(`\r  Animated move ${i + 1} / ${totalMoves}`);
+
+    // Clear old board states to free memory (keep current and next only)
+    if (i > 2) {
+      boardStates[i - 2] = null;
+    }
+
+    // Force GC every 5 moves to prevent memory bloat
+    if (i > 0 && i % 5 === 0 && global.gc) {
+      global.gc();
+    }
   }
   drawMoveLabel.meta = null;
   console.log(`\n  All frames rendered (${frameIndex} total).`);
@@ -238,15 +253,26 @@ async function pgnToVideo(pgnInput, outputPath = 'chess_game.mp4') {
     );
     console.log(`Done! Video saved to: ${resolvedOutputPath}`);
   } finally {
+    // Cleanup frames with retry logic (ffmpeg might still have handles open)
     if (fs.existsSync(framesDir)) {
-      try {
-        const files = fs.readdirSync(framesDir);
-        for (const file of files) {
-          fs.unlinkSync(path.join(framesDir, file));
+      const maxRetries = 3;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const files = fs.readdirSync(framesDir);
+          for (const file of files) {
+            fs.unlinkSync(path.join(framesDir, file));
+          }
+          fs.rmdirSync(framesDir);
+          break; // Success
+        } catch (err) {
+          if (attempt === maxRetries) {
+            console.warn(`⚠️  Could not clean up frames after ${maxRetries} attempts: ${err.message}`);
+            console.warn(`   Run 'npm run cleanup-frames' to remove orphaned frames`);
+          } else {
+            // Wait a bit before retry (let ffmpeg release handles)
+            require('child_process').execSync('sleep 0.5');
+          }
         }
-        fs.rmdirSync(framesDir);
-      } catch (err) {
-        console.warn(`Warning: Could not clean up frames directory: ${err.message}`);
       }
     }
   }
@@ -267,7 +293,7 @@ async function renderGame(parsedGame, outputPath) {
     boardStates.push(replay.board());
   }
 
-  const framesDir = path.join(__dirname, '..', '..', `frames-${process.pid}`);
+  const framesDir = path.join(__dirname, '..', '..', 'frames', `worker-${process.pid}`);
   if (fs.existsSync(framesDir)) {
     try {
       const files = fs.readdirSync(framesDir);
@@ -294,6 +320,11 @@ async function renderGame(parsedGame, outputPath) {
     const file = path.join(framesDir, `frame_${String(frameIndex).padStart(6, '0')}.png`);
     fs.writeFileSync(file, buf);
     frameIndex++;
+
+    // Aggressive memory cleanup every 100 frames
+    if (frameIndex % 100 === 0 && global.gc) {
+      global.gc();
+    }
   }
 
   drawMoveLabel.meta = {
@@ -422,6 +453,16 @@ async function renderGame(parsedGame, outputPath) {
     }
 
     process.stdout.write(`\r  Animated move ${i + 1} / ${totalMoves}`);
+
+    // Clear old board states to free memory (keep current and next only)
+    if (i > 2) {
+      boardStates[i - 2] = null;
+    }
+
+    // Force GC every 5 moves to prevent memory bloat
+    if (i > 0 && i % 5 === 0 && global.gc) {
+      global.gc();
+    }
   }
   drawMoveLabel.meta = null;
   console.log(`\n  All frames rendered (${frameIndex} total).`);
@@ -439,15 +480,26 @@ async function renderGame(parsedGame, outputPath) {
     );
     console.log(`Done! Video saved to: ${resolvedOutputPath}`);
   } finally {
+    // Cleanup frames with retry logic (ffmpeg might still have handles open)
     if (fs.existsSync(framesDir)) {
-      try {
-        const files = fs.readdirSync(framesDir);
-        for (const file of files) {
-          fs.unlinkSync(path.join(framesDir, file));
+      const maxRetries = 3;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const files = fs.readdirSync(framesDir);
+          for (const file of files) {
+            fs.unlinkSync(path.join(framesDir, file));
+          }
+          fs.rmdirSync(framesDir);
+          break; // Success
+        } catch (err) {
+          if (attempt === maxRetries) {
+            console.warn(`⚠️  Could not clean up frames after ${maxRetries} attempts: ${err.message}`);
+            console.warn(`   Run 'npm run cleanup-frames' to remove orphaned frames`);
+          } else {
+            // Wait a bit before retry (let ffmpeg release handles)
+            require('child_process').execSync('sleep 0.5');
+          }
         }
-        fs.rmdirSync(framesDir);
-      } catch (err) {
-        console.warn(`Warning: Could not clean up frames directory: ${err.message}`);
       }
     }
   }

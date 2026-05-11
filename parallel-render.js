@@ -8,7 +8,8 @@ const os = require('os');
 const inputDir = path.join(__dirname, 'input');
 const outputDir = path.join(__dirname, 'output');
 
-// Use 75% of available cores, or at least 1
+// Use 75% of available cores (or at least 1)
+// With canvas reuse fix, we can safely use more workers
 const MAX_WORKERS = Math.max(1, Math.floor(os.cpus().length * 0.75));
 const workers = parseInt(process.argv[2]) || MAX_WORKERS;
 
@@ -22,6 +23,28 @@ else console.log('   Tip: Use --verbose for detailed output\n');
 if (!fs.existsSync(inputDir)) {
   console.error('Error: input/ directory not found');
   process.exit(1);
+}
+
+// Clean up any stale worker directories from previous interrupted runs
+const framesDir = path.join(__dirname, 'frames');
+if (fs.existsSync(framesDir)) {
+  const staleWorkers = fs.readdirSync(framesDir)
+    .filter(f => f.startsWith('worker-'));
+
+  if (staleWorkers.length > 0) {
+    console.log(`🗑  Cleaning up ${staleWorkers.length} stale worker directories...`);
+    staleWorkers.forEach(dir => {
+      const dirPath = path.join(framesDir, dir);
+      try {
+        const files = fs.readdirSync(dirPath);
+        files.forEach(file => fs.unlinkSync(path.join(dirPath, file)));
+        fs.rmdirSync(dirPath);
+      } catch (err) {
+        console.warn(`   Warning: Could not remove ${dir}: ${err.message}`);
+      }
+    });
+    console.log('✓ Cleanup complete\n');
+  }
 }
 
 const jsonFiles = fs.readdirSync(inputDir)
@@ -118,8 +141,7 @@ function updateStatus() {
 
       sortedWorkers.forEach(([pid, worker]) => {
         const progress = workerProgress.get(pid) || 'Starting...';
-        const elapsed = Date.now() - worker.startTime;
-        lines.push(`   ${worker.name.padEnd(12)} - ${progress.padEnd(20)} (${formatTime(elapsed)})`);
+        lines.push(`   ${worker.name.padEnd(12)} - ${progress.padEnd(20)}`);
       });
     }
     lines.push(`${'─'.repeat(80)}`);
@@ -140,6 +162,11 @@ function updateStatus() {
 function renderNext() {
   if (queue.length === 0) {
     if (activeWorkers.size === 0) {
+      // Clear the status update interval
+      if (statusInterval) {
+        clearInterval(statusInterval);
+      }
+
       // All done
       const elapsed = Date.now() - results.startTime;
       console.log('\n\n' + '='.repeat(70));
@@ -175,7 +202,8 @@ function renderNext() {
     job.input,
     job.output
   ], {
-    stdio: VERBOSE ? ['ignore', 'pipe', 'pipe', 'ipc'] : 'ignore'
+    stdio: VERBOSE ? ['ignore', 'pipe', 'pipe', 'ipc'] : 'ignore',
+    execArgv: ['--expose-gc', '--max-old-space-size=2048'] // Enable GC, limit to 2GB per worker
   });
 
   // Track worker progress for status display
@@ -200,6 +228,13 @@ function renderNext() {
       } else if (text.includes('Encoding')) {
         workerProgress.set(child.pid, 'Encoding video');
       }
+      // Data is consumed - prevents buffer buildup
+    });
+
+    // CRITICAL: Consume stderr to prevent memory leak
+    // Without this, stderr output accumulates in Node's internal buffers
+    child.stderr.on('data', () => {
+      // Silently consume to prevent buffer overflow
     });
   }
 
@@ -263,6 +298,35 @@ function renderNext() {
   });
 }
 
+// Cleanup function to kill all workers
+function cleanupWorkers() {
+  // Clear the status update interval
+  if (statusInterval) {
+    clearInterval(statusInterval);
+  }
+
+  console.log('\n\n🛑 Shutting down workers...');
+
+  for (const [pid] of activeWorkers) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      console.log(`   Killed worker ${pid}`);
+    } catch (err) {
+      // Process might have already exited
+      if (err.code !== 'ESRCH') {
+        console.error(`   Failed to kill worker ${pid}:`, err.message);
+      }
+    }
+  }
+
+  console.log(`✓ Cleaned up ${activeWorkers.size} worker(s)\n`);
+  process.exit(130); // 128 + SIGINT signal number
+}
+
+// Handle Ctrl-C and other termination signals
+process.on('SIGINT', cleanupWorkers);
+process.on('SIGTERM', cleanupWorkers);
+
 // Start workers
 console.log(`Starting ${Math.min(workers, jsonFiles.length)} workers (${jsonFiles.length} games in queue)...\n`);
 for (let i = 0; i < Math.min(workers, jsonFiles.length); i++) {
@@ -270,8 +334,9 @@ for (let i = 0; i < Math.min(workers, jsonFiles.length); i++) {
 }
 
 // Periodic status updates in verbose mode
+let statusInterval;
 if (VERBOSE) {
-  setInterval(() => {
+  statusInterval = setInterval(() => {
     if (activeWorkers.size > 0) {
       updateStatus();
     }

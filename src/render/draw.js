@@ -154,11 +154,11 @@ function drawPlayerNameBars(ctx, meta) {
       const titleWidth = ctx.measureText(effectiveTitle).width;
 
       ctx.fillStyle = color;
-      const nameRating = rating ? ` ${displayName} ${rating}` : ` ${displayName}`;
+      const nameRating = rating ? `  ${displayName}  (${rating})` : `  ${displayName}`;
       ctx.fillText(nameRating, x + titleWidth, centerY);
     } else {
       ctx.fillStyle = color;
-      const nameRating = rating ? `${displayName} ${rating}` : displayName;
+      const nameRating = rating ? `${displayName}  (${rating})` : displayName;
       ctx.fillText(nameRating, x, centerY);
     }
 
@@ -263,7 +263,11 @@ function drawBackground(ctx) {
 }
 
 function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves, customMeta = null) {
-  const canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+  // Reuse shared canvas to prevent native memory leak
+  if (!renderStaticFrame.canvas) {
+    renderStaticFrame.canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+  }
+  const canvas = renderStaticFrame.canvas;
   const ctx = canvas.getContext('2d');
   drawBackground(ctx);
   drawPlayerNameBars(ctx, customMeta || drawMoveLabel.meta);
@@ -277,7 +281,11 @@ function renderStaticFrame(boardArray, lastMove, moveNumber, san, totalMoves, cu
 }
 
 function renderTweenFrame(boardBefore, move, t, moveNumber, totalMoves) {
-  const canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+  // Reuse shared canvas to prevent native memory leak
+  if (!renderTweenFrame.canvas) {
+    renderTweenFrame.canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT);
+  }
+  const canvas = renderTweenFrame.canvas;
   const ctx = canvas.getContext('2d');
   const ease = easeInOut(t);
 

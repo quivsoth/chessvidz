@@ -4,4 +4,13 @@ output/
 frames/
 frames-*/
 *.mp4
-*.json
+input/*.json
+
+# Keep config files
+!config.json
+!package.json
+!package-lock.json
+
+# Explicitly ignore frame content
+frames/*.png
+frames/worker-*/

@@ -6,7 +6,10 @@
   "scripts": {
     "test": "echo \"No tests yet\"",
     "render": "node render-batch.js",
-    "render:parallel": "node parallel-render.js"
+    "render:parallel": "node parallel-render.js",
+    "download-pieces": "node download-pieces.js",
+    "set-pieces": "node set-pieces.js",
+    "cleanup-frames": "node cleanup-frames.js"
   },
   "keywords": [],
   "author": "",
