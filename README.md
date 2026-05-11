@@ -26,8 +26,19 @@ node index.js --payload /path/to/game-payload.json output.mp4
 
 Place JSON payload files in the `input/` folder, then:
 
+**Sequential (one at a time):**
 ```bash
 npm run render
+```
+
+**Parallel (utilizes CPU cores):**
+```bash
+npm run render:parallel
+```
+
+By default, parallel mode uses 75% of your CPU cores. To specify worker count:
+```bash
+node parallel-render.js 8  # Use 8 workers
 ```
 
 This processes all `.json` files in `input/` and saves videos to `output/`.
