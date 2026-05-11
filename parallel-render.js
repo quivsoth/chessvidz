@@ -151,24 +151,32 @@ function renderNext() {
   });
 
   if (VERBOSE) {
-    // Stream output with game name prefix
-    child.stdout.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(Boolean);
-      lines.forEach(line => {
-        if (line.trim()) {
-          console.log(`   [${job.name}] ${line}`);
-        }
-      });
-    });
+    // Stream output with game name prefix - filter to important events only
+    const importantPatterns = [
+      /Loaded historical game/,
+      /All frames rendered/,
+      /Encoding to/,
+      /Done! Video saved/,
+      /Animated move \d+0 \//,  // Every 10th move
+    ];
 
-    child.stderr.on('data', (data) => {
-      const lines = data.toString().split('\n').filter(Boolean);
+    const filterOutput = (data) => {
+      const text = data.toString();
+      const lines = text.split(/[\r\n]+/).filter(Boolean);
+
       lines.forEach(line => {
-        if (line.trim()) {
-          console.log(`   [${job.name}] ${line}`);
+        const cleanLine = line.replace(/\r/g, '').trim();
+        if (!cleanLine) return;
+
+        // Show important events
+        if (importantPatterns.some(pattern => pattern.test(cleanLine))) {
+          console.log(`   [${job.name}] ${cleanLine}`);
         }
       });
-    });
+    };
+
+    child.stdout.on('data', filterOutput);
+    child.stderr.on('data', filterOutput);
   }
 
   const workerData = {
